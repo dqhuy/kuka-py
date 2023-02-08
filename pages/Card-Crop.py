@@ -1,4 +1,4 @@
-from cardcrop import *
+from cardcrop.cardcrop import *
 
 import streamlit as st
 
@@ -12,7 +12,7 @@ def main_loop():
     st.text("Output: Ảnh crop thẻ và nắn thẳng")
 
 
-    updloaded_file = st.sidebar.file_uploader("Upload ảnh", type=['jpg', 'png', 'jpeg'])
+    updloaded_file = st.subheader.file_uploader("Upload ảnh", type=['jpg', 'png', 'jpeg'])
     if not updloaded_file:
         return None
     

@@ -1,3 +1,3 @@
 import streamlit as st
 
-st.title("This is demo-app for KUKA-LiB")
+st.title("Demo App for KUKA-LiB")
