@@ -32,7 +32,7 @@ def deskew(src):
     lines=cv2.HoughLinesP(edgeImg,rho= roh,theta=angleStep*np.pi/180,threshold= 150,minLineLength= width/12,maxLineGap=10)
 
     nb_lines=0
-    if(lines):
+    if(lines.any()):
         nb_lines=len(lines)
     listAngle=[]
     mAngle={} #create new diction of angle
@@ -89,7 +89,7 @@ def deskew(src):
     #create debugImage
     debugImage=src.copy()
     debugImage=cv2.resize(src,(edgeImg.shape[1],edgeImg.shape[0]))
-    if(lines):
+    if(lines.any()):
         for line in lines:
             x1,y1,x2,y2=line[0]
             cv2.line(debugImage,(x1,y1),(x2,y2),(0,0,255))
