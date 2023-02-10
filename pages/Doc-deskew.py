@@ -6,6 +6,38 @@ import cv2
 import streamlit as st
 import numpy as np
 
+from google.oauth2 import service_account
+from google.cloud import storage
+
+from tempfile import TemporaryFile
+
+import os
+
+def saveToStorage(filename,imagedata):
+    # Create API client.
+    credentials = service_account.Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"])
+    
+    client = storage.Client(credentials=credentials)
+
+    bucketName="kuka-py-app"
+    
+    bucket=client.bucket(bucket_name=bucketName)
+
+    with TemporaryFile() as tempFile:
+        tempFilePath = "".join([str(tempFile.name),".jpg"])
+        tempFolder,tempName=os.path.split(tempFilePath)
+        cv2.imwrite(tempFilePath,imagedata)
+        blob = bucket.blob("error-deskew/"+tempName)
+        blob.upload_from_filename(filename=tempFilePath,content_type="image/jpeg")
+        blob.make_public()
+
+        url=blob.public_url
+        print("update success: " + blob.public_url)
+        #clear tem file
+        os.remove(tempFilePath)
+        return url
+    
 def main_loop():
     st.set_page_config(page_title="Document deskew tool")
     st.title("Demo Tool: Document deskew")
@@ -38,8 +70,10 @@ def main_loop():
         # Every form must have a submit button.
         submitted = st.form_submit_button("Báo lỗi",)
         if submitted:
-            cv2.imwrite("./error-deskew/"+updloaded_file.name,src)
+            #cv2.imwrite("./error-deskew/"+updloaded_file.name,src)
+            url=saveToStorage(updloaded_file.name,src)
             st.text("Cảm ơn bạn đã báo lỗi!")
+            st.write("File đã lưu: ["+url+"](" + url + ")")
 
 if __name__ == '__main__':
     main_loop()
