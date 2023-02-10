@@ -27,8 +27,6 @@ def deskew(src):
         height = int(height * ratio)
         edgeImg=cv2.resize(edgeImg,(width,height),interpolation=cv2.INTER_LINEAR)
 
-    cv2.imshow("edge",edgeImg)
-
     angleStep=0.3
     roh=1
     lines=cv2.HoughLinesP(edgeImg,rho= roh,theta=angleStep*np.pi/180,threshold= 150,minLineLength= width/12,maxLineGap=10)
