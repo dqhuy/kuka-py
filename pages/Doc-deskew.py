@@ -32,6 +32,14 @@ def main_loop():
         st.image(deskewImg,channels='BGR')
 
     #save uploaded image
+    with st.form("my_form"):
+        st.write("Bạn vui lòng bấm nút [Báo lỗi] nếu thấy kết quả xử lý không tốt")
+
+        # Every form must have a submit button.
+        submitted = st.form_submit_button("Báo lỗi",)
+        if submitted:
+            cv2.imwrite("./error-deskew/"+updloaded_file.name,src)
+            st.text("Cảm ơn bạn đã báo lỗi!")
 
 if __name__ == '__main__':
     main_loop()
