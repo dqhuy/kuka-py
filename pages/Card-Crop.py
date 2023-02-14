@@ -18,7 +18,7 @@ def main_loop():
     
     file_bytes = np.asarray(bytearray(updloaded_file.read()), dtype=np.uint8)
     src = cv2.imdecode(file_bytes, 1)
-    cropedImg,debugImg=cardCrop(src)
+    cropedImg,debugImg,(tl,tr,br,bl)=cardCrop(src)
     
     col1, col2, col3 = st.columns(3)
     with col1:

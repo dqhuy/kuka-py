@@ -162,6 +162,11 @@ def cardCrop(src,debug=False):
     bottomline=[]
     leftline=[]
     rightline=[]
+    topleftPoint=[]
+    toprightPoint=[]
+    bottomleftPoint=[]
+    bottomrightPoint=[]
+    
     for line in lines:
         p1=line[0][0:2]
         p2=line[0][2:4]
@@ -240,7 +245,7 @@ def cardCrop(src,debug=False):
     if(debug):
         cv2.imshow("debug",lineImg)
 
-    return cropedImg,lineImg
+    return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
 if __name__ == '__main__':
     path=sys.argv[1]
@@ -264,7 +269,7 @@ if __name__ == '__main__':
                 continue
 
             print(filename," ---> ", end='')
-            cropedImg,debugImg=cardCrop(src)
+            cropedImg,debugImg,_=cardCrop(src)
             savedFilename=os.path.join(outpath,f)
             savedDebugFileName=os.path.join(outpath,"debug_"+f)
             cv2.imwrite(savedFilename,cropedImg)
@@ -274,7 +279,7 @@ if __name__ == '__main__':
     else:
         filename=path
         src=cv2.imread(filename)    
-        cropedImg=cardCrop(src,debug=True)
+        cropedImg,debugImg,_dImg=cardCrop(src,debug=True)
         cv2.imshow("Croped Image",cropedImg)
         cv2.waitKey()
         cv2.destroyAllWindows()
