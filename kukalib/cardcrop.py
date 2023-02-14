@@ -136,8 +136,8 @@ def cardCrop(src,debug=False):
     
     ## Step 2: Edge and line dectection => Detect quadrilateral
     
-    edgeImg=cv2.Canny(threshImg,70,200)
-    lines = cv2.HoughLinesP(edgeImg,rho=3,theta=0.3*np.pi/180,threshold=30,minLineLength=30,maxLineGap=10)
+    edgeImg=cv2.Canny(gray,70,200)
+    lines = cv2.HoughLinesP(edgeImg,rho=3,theta=1*np.pi/180,threshold=30,minLineLength=30,maxLineGap=10)
 
     contours,hierachy=cv2.findContours(edgeImg,cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
     sortedContours=sorted(contours,key=cv2.contourArea,reverse=True)
