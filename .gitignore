@@ -2,3 +2,4 @@ kukalib/temp.py
 .streamlit/secrets.toml
 result.csv
 .vscode/launch.json
+*.pyc
