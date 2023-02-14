@@ -245,6 +245,7 @@ def cardCrop(src,debug=False):
     if(debug):
         cv2.imshow("debug",lineImg)
 
+
     return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
 if __name__ == '__main__':
