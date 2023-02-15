@@ -1,5 +1,6 @@
 import sys
 import glob
+from pathlib import Path
 
 # adding root folder of kuka-lib to the system path
 sys.path.insert(0, '../kuka-py')
@@ -17,8 +18,11 @@ def getquardLabel(labelFile):
     """
     f = open(labelFile)
     label = json.load(f)
-    (tl,tr,br,bl)=label.get("quad")
-    return (tl,tr,br,bl)
+    if('quad' in label):
+        (tl,tr,br,bl)=label.get("quad")
+        return (tl,tr,br,bl)
+    else:
+        return (None,None,None,None)
 
 def getBoxPoint(listPoint):
     listPoint=np.array(listPoint,dtype=np.float32)
@@ -74,37 +78,52 @@ def get_confidence_2quard(quadr_true,quadr_pred):
     mean_c=(tl_c+tr_c+br_c+bl_c)/4
     return mean_c
 
-def main(rootPath):
+def main(rootPath,debug=False):
     imagePath=os.path.join(rootPath,"images")
     labelPath=os.path.join(rootPath,"ground_truth")
 
     print("File","\t","Confidence","\t","Note")
-    for f in glob.glob(imagePath+"/**",recursive=True):
+    for f in glob.glob(os.path.join(imagePath,"**"),recursive=True):
         if(os.path.isdir(f) or ("out" in f) ):
             continue
 
         labelFile=os.path.splitext(f)[0] + ".json"
         labelFile=labelFile.replace("images","ground_truth")
-
+       
         src=cv2.imread(f)
-
+        if(type(src)!=np.ndarray):
+                continue
         #get predict value
         cropedImg,debugImg,(tl_pred,tr_pred,br_pred,bl_pred)=cardCrop(src)
+        if(debug):
+            outpath=os.path.join(Path(f).parent,"out")
+            if(not os.path.exists(outpath)):
+                os.mkdir(outpath)
+            debugName="debug_" + os.path.basename(f)
+            debugName=os.path.join(outpath,debugName)
+            cv2.imwrite(debugName,debugImg)
+
         if(len(tl_pred)==0 or len(tr_pred)==0 or len(br_pred)==0 or len(bl_pred)==0):
             print(f,"\t",0,"\t","Fail")
             continue
 
-        box_pre=getBoxPoint((tl_pred,tr_pred,br_pred,bl_pred))
         
-        #get ground_truth value
-        (tl,tr,br,bl)=getquardLabel(labelFile)
-        box_truth=getBoxPoint((tl,tr,br,bl))
-        #calculate metric IoU
-
-        confidence=get_confidence_2quard((tl,tr,br,bl),(tl_pred,tr_pred,br_pred,bl_pred))
-        print(f,"\t", confidence)  
+        if(os.path.exists(labelFile)):
+            #get ground_truth value
+            (tl,tr,br,bl)=getquardLabel(labelFile)
+            if( (tl,tr,br,bl)!=(None,None,None,None)):
+                #calculate metric IoU
+                confidence=get_confidence_2quard((tl,tr,br,bl),(tl_pred,tr_pred,br_pred,bl_pred))
+                print(f,"\t", confidence)  
 
 if __name__ == '__main__':
-    rootPath=sys.argv[1]
-    #rootPath=r"D:\Project\perspective-deskew-python\midv500_data\midv500\01_alb_id"
-    main(rootPath)
+    import argparse
+    import shutil
+    parser=argparse.ArgumentParser()
+    parser.add_argument('path',help='Path to root folder that containt 2 sub image /Images and /Ground_Truth')           # positional argument
+    parser.add_argument('-d', '--debug',default=False,type=bool,help="write debug image to output file") 
+
+    args = parser.parse_args()
+    rootPath=args.path
+    debug=args.debug
+    main(rootPath,debug)

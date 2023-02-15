@@ -105,7 +105,7 @@ def getLineLength(p1, p2):
     yDiff = y2 - y1
     return np.sqrt((xDiff**2)+(yDiff**2))
 
-def cardCrop(src,debug=False):
+def cardCrop(src):
     """
     try to detect 4 borders of id card in image 
     then making croping and perspective transforming
@@ -139,14 +139,27 @@ def cardCrop(src,debug=False):
     edgeImg=cv2.Canny(gray,70,200)
     lines = cv2.HoughLinesP(edgeImg,rho=3,theta=1*np.pi/180,threshold=30,minLineLength=30,maxLineGap=10)
 
-    contours,hierachy=cv2.findContours(edgeImg,cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
-    sortedContours=sorted(contours,key=cv2.contourArea,reverse=True)
+    # contours,hierachy=cv2.findContours(edgeImg,cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
+    # sortedContours=sorted(contours,key=cv2.contourArea,reverse=True)
 
     #duyệt các lines
         # top-line , b-line là đường nằm trên / dưới horizontal  midle và có độ dài lớn nhất, có theta
         # left-line / right-line lác các đường nằm bên trái / phải của đường vertical midle
-    maxContours=sortedContours[0]
-    x, y, w, h = cv2.boundingRect(maxContours)
+    
+    # khong dung maxcontours do do sai so cao
+    # maxContours=sortedContours[0]
+    # x, y, w, h = cv2.boundingRect(maxContours)
+
+    listPoint=lines.reshape(lines.shape[0]*2,2)
+    minX=min(listPoint[:,0])
+    maxX=max(listPoint[:,0])
+    minY=min(listPoint[:,1])
+    maxY=max(listPoint[:,1])
+
+    x=minX
+    y=minY
+    w=(maxX-minX+1)
+    h=(maxY-minY+1)
 
     hLine=(x,y+h/2,x+w,y+h/2)
     vLine=(x+w/2,y, x+w/2,y+h)
@@ -207,8 +220,6 @@ def cardCrop(src,debug=False):
         bottomleftPoint=findIntersection((aL,bL,cL),(aB,bB,cB))
         bottomrightPoint=findIntersection((aR,bR,cR),(aB,bB,cB))
 
-
-
         # check if the polygon has four point
         corners=np.array([topleftPoint,toprightPoint,bottomleftPoint,bottomrightPoint])
 
@@ -226,26 +237,16 @@ def cardCrop(src,debug=False):
         cv2.line(lineImg,hLine[0:2],hLine[2:4],(0,0,255),3)
         cv2.line(lineImg,vLine[0:2],vLine[2:4],(0,0,255),3)
 
-        # cv2.line(lineImg,topline[0:2],topline[2:4],(0,0,255),1)
-        # cv2.line(lineImg,bottomline[0:2],bottomline[2:4],(0,0,255),1)
-        # cv2.line(lineImg,leftline[0:2],leftline[2:4],(0,0,255),1)
-        # cv2.line(lineImg,rightline[0:2],rightline[2:4],(0,0,255),1)
-
         cv2.circle(lineImg,topleftPoint,3,(0,0,255),3)
         cv2.circle(lineImg,toprightPoint,3,(0,0,255),3)
         cv2.circle(lineImg,bottomleftPoint,3,(0,0,255),3)
         cv2.circle(lineImg,bottomrightPoint,3,(0,0,255),3)
         
         cv2.line(lineImg,topleftPoint,toprightPoint,(0,0,255),3)
-        cv2.line(lineImg,topleftPoint,bottomleftPoint,(0,0,255),3)
-        cv2.line(lineImg,bottomrightPoint,toprightPoint,(0,0,255),3)
+        cv2.line(lineImg,toprightPoint,bottomrightPoint,(0,0,255),3)
         cv2.line(lineImg,bottomrightPoint,bottomleftPoint,(0,0,255),3)
-        
+        cv2.line(lineImg,bottomleftPoint,topleftPoint,(0,0,255),3)
     
-    if(debug):
-        cv2.imshow("debug",lineImg)
-
-
     return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
 if __name__ == '__main__':
