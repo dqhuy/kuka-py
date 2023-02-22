@@ -105,6 +105,18 @@ def getLineLength(p1, p2):
     yDiff = y2 - y1
     return np.sqrt((xDiff**2)+(yDiff**2))
 
+def sobel(gray):
+    'Get edge image by sobel operators'
+    ddepth=cv2.CV_16S
+    gradX=cv2.Sobel(gray,ddepth=ddepth,dx=1,dy=0,ksize=3)
+    gradY=cv2.Sobel(gray,ddepth=ddepth,dx=0,dy=1,ksize=3)
+    abs_gradX=cv2.convertScaleAbs(gradX)
+    abs_gradY=cv2.convertScaleAbs(gradY)
+    grad=cv2.addWeighted(abs_gradX,0.5,abs_gradY,0.5,0)
+    grad=abs_gradX+abs_gradY
+    return grad
+
+
 def cardCrop(src):
     """
     try to detect 4 borders of id card in image 
@@ -126,18 +138,25 @@ def cardCrop(src):
     ## Step 1: try to extract background
     ### using Morph_close
     kernel=np.ones((7,7),np.uint8)
-    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=2)
+    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=3)
     
     gray=cv2.cvtColor(dilectImg,cv2.COLOR_BGR2GRAY)
     
     blurImg=cv2.GaussianBlur(gray,(5,5),0)
     
-    ret1,threshImg=cv2.threshold(blurImg,70,200,cv2.THRESH_OTSU + cv2.THRESH_BINARY)
+    ret1,threshImg=cv2.threshold(blurImg,40,200,cv2.THRESH_OTSU + cv2.THRESH_BINARY)
     
     ## Step 2: Edge and line dectection => Detect quadrilateral
     
-    edgeImg=cv2.Canny(gray,70,200)
-    lines = cv2.HoughLinesP(edgeImg,rho=3,theta=1*np.pi/180,threshold=30,minLineLength=30,maxLineGap=10)
+    #edgeImg=cv2.Canny(gray,40,200)
+    #update 20/02 using sobel operator
+    sobelImg=sobel(blurImg)
+    ret1,edgeImg = cv2.threshold(sobelImg,70,200,cv2.THRESH_TOZERO + cv2.THRESH_BINARY)
+
+    ## make egde more dilect
+    edgeImg=cv2.morphologyEx(edgeImg,cv2.MORPH_DILATE,(5,5),iterations=3)
+
+    lines = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=50,minLineLength=30,maxLineGap=10)
 
     # contours,hierachy=cv2.findContours(edgeImg,cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
     # sortedContours=sorted(contours,key=cv2.contourArea,reverse=True)
@@ -248,6 +267,7 @@ def cardCrop(src):
         cv2.line(lineImg,bottomleftPoint,topleftPoint,(0,0,255),3)
     
     return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
+
 
 if __name__ == '__main__':
     path=sys.argv[1]
