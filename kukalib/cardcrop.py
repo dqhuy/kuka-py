@@ -136,7 +136,7 @@ def cardCrop(src):
     lineImg=src.copy()
 
     ## Step 1: try to extract background
-    ### using Morph_close
+    ### using Morph_close to remove text
     kernel=np.ones((7,7),np.uint8)
     dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=3)
     
@@ -144,7 +144,7 @@ def cardCrop(src):
     
     blurImg=cv2.GaussianBlur(gray,(5,5),0)
     
-    ret1,threshImg=cv2.threshold(blurImg,40,200,cv2.THRESH_OTSU + cv2.THRESH_BINARY)
+    #ret1,threshImg=cv2.threshold(blurImg,40,200,cv2.THRESH_OTSU + cv2.THRESH_BINARY)
     
     ## Step 2: Edge and line dectection => Detect quadrilateral
     
@@ -160,25 +160,24 @@ def cardCrop(src):
 
     # contours,hierachy=cv2.findContours(edgeImg,cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
     # sortedContours=sorted(contours,key=cv2.contourArea,reverse=True)
-
-    #duyệt các lines
-        # top-line , b-line là đường nằm trên / dưới horizontal  midle và có độ dài lớn nhất, có theta
-        # left-line / right-line lác các đường nằm bên trái / phải của đường vertical midle
+    """
+    Step 3: trying to find quadrilateral by estimating 4 lines: top/bottom , left/right
+    Asumption:
+        - card is nearly center of image
+        - 4 edges of card nearly present in the image
+    """
     
-    # khong dung maxcontours do do sai so cao
-    # maxContours=sortedContours[0]
-    # x, y, w, h = cv2.boundingRect(maxContours)
+    
+    # listPoint=lines.reshape(lines.shape[0]*2,2)
+    # minX=min(listPoint[:,0])
+    # maxX=max(listPoint[:,0])
+    # minY=min(listPoint[:,1])
+    # maxY=max(listPoint[:,1])
 
-    listPoint=lines.reshape(lines.shape[0]*2,2)
-    minX=min(listPoint[:,0])
-    maxX=max(listPoint[:,0])
-    minY=min(listPoint[:,1])
-    maxY=max(listPoint[:,1])
-
-    x=minX
-    y=minY
-    w=(maxX-minX+1)
-    h=(maxY-minY+1)
+    x=0
+    y=0
+    w=src.shape[1]
+    h=src.shape[0]
 
     hLine=(x,y+h/2,x+w,y+h/2)
     vLine=(x+w/2,y, x+w/2,y+h)
@@ -253,8 +252,13 @@ def cardCrop(src):
         cropedImg = cv2.warpPerspective(src, M, (destination_corners[2][0], destination_corners[2][1]),
                                         flags=cv2.INTER_LINEAR)
 
-        cv2.line(lineImg,hLine[0:2],hLine[2:4],(0,0,255),3)
-        cv2.line(lineImg,vLine[0:2],vLine[2:4],(0,0,255),3)
+        
+        #show debug: middle vertical,hozirontal line of boundingbox
+        x,y,w,h=cv2.boundingRect(np.float32(corners))
+        w2=int(w/2)
+        h2=int(h/2)
+        cv2.line(lineImg,(x,y+h2),(x+w,y+h2),(0,0,255),5) #horizontal
+        cv2.line(lineImg,(x+w2,y),(x+w2,y+h),(0,0,255),5) # vertical
 
         cv2.circle(lineImg,topleftPoint,3,(0,0,255),3)
         cv2.circle(lineImg,toprightPoint,3,(0,0,255),3)
