@@ -5,13 +5,19 @@ import streamlit as st
 import cv2
 import streamlit as st
 import numpy as np
+import datetime
 
 def main_loop():
+    versionInfo = getVersionInfo()
+
     st.set_page_config(page_title="Card Croping Tool")
     st.title("Demo Tool: Card Croping")
+    st.text("Version: " + versionInfo["version"] + " - Release date:" + versionInfo["date"].strftime("%Y-%m-%d"))
+
     st.subheader("Crop card từ ảnh chụp và chỉnh nghiêng ") 
     st.image('pages/card-crop-sample.jpg',caption='Ảnh mẫu và kết quả xử lý')
 
+    
     updloaded_file = st.file_uploader("Upload ảnh", type=['jpg', 'png', 'jpeg','tif','tiff'])
     if not updloaded_file:
         return None

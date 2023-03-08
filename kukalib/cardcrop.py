@@ -11,7 +11,13 @@ import cv2
 import numpy as np
 import os;
 import sys
-
+import datetime
+# getversion
+def getVersionInfo():
+    versionInfo = {"version": "0.2.0" ,
+               "date": datetime.date(2023,3,8)   
+               }
+    return versionInfo
 #common function
 
 def findIntersection (params1, params2):
