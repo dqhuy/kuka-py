@@ -78,7 +78,7 @@ def get_confidence_2quard(quadr_true,quadr_pred):
     mean_c=(tl_c+tr_c+br_c+bl_c)/4
     return mean_c
 
-def main(rootPath,debug=False):
+def main(rootPath,savepath,debug=False):
     imagePath=os.path.join(rootPath,"images")
     labelPath=os.path.join(rootPath,"ground_truth")
 
@@ -96,7 +96,7 @@ def main(rootPath,debug=False):
         #get predict value
         cropedImg,debugImg,(tl_pred,tr_pred,br_pred,bl_pred)=cardCrop(src)
         if(debug):
-            outpath=os.path.join(Path(f).parent,"out")
+            outpath= savepath
             if(not os.path.exists(outpath)):
                 os.mkdir(outpath)
             debugName="debug_" + os.path.basename(f)
@@ -122,8 +122,10 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('path',help='Path to root folder that containt 2 sub image /Images and /Ground_Truth')           # positional argument
     parser.add_argument('-d', '--debug',default=False,type=bool,help="write debug image to output file") 
+    parser.add_argument('-sp', '--savepath',help="path to save output") 
 
     args = parser.parse_args()
     rootPath=args.path
     debug=args.debug
-    main(rootPath,debug)
+    savepath=args.savepath
+    main(rootPath,savepath,debug)

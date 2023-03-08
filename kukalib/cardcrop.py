@@ -112,16 +112,19 @@ def sobel(gray):
     gradY=cv2.Sobel(gray,ddepth=ddepth,dx=0,dy=1,ksize=3)
     abs_gradX=cv2.convertScaleAbs(gradX)
     abs_gradY=cv2.convertScaleAbs(gradY)
-    grad=cv2.addWeighted(abs_gradX,0.5,abs_gradY,0.5,0)
-    grad=abs_gradX+abs_gradY
+    grad=cv2.addWeighted(abs_gradX,1,abs_gradY,1,0)
     return grad
 
 
 def cardCrop(src):
     """
-    try to detect 4 borders of id card in image 
-    then making croping and perspective transforming
-    by using hough technic
+    try to detecting 4 vertices of by using Hough Transform
+    if has enough 4 vertices then crop it by using homography matrix
+    if not return orginal input
+		Step 1: try to remove background and card content
+		step 2: detect edge by sobel
+		step 3: get line by hough then find 4 vertices by longest lines for each side (top / bottom / left / right)
+		step 4: make homography transform and return result
     
     Parameter
     -
@@ -138,23 +141,19 @@ def cardCrop(src):
     ## Step 1: try to extract background
     ### using Morph_close to remove text
     kernel=np.ones((7,7),np.uint8)
-    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=3)
+    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=5)
     
     gray=cv2.cvtColor(dilectImg,cv2.COLOR_BGR2GRAY)
     
     blurImg=cv2.GaussianBlur(gray,(5,5),0)
     
-    #ret1,threshImg=cv2.threshold(blurImg,40,200,cv2.THRESH_OTSU + cv2.THRESH_BINARY)
-    
     ## Step 2: Edge and line dectection => Detect quadrilateral
     
-    #edgeImg=cv2.Canny(gray,40,200)
-    #update 20/02 using sobel operator
     sobelImg=sobel(blurImg)
-    ret1,edgeImg = cv2.threshold(sobelImg,70,200,cv2.THRESH_TOZERO + cv2.THRESH_BINARY)
+    ret1,edgeImg = cv2.threshold(sobelImg,40,200, cv2.THRESH_OTSU + cv2.THRESH_TOZERO + cv2.THRESH_BINARY)
 
     ## make egde more dilect
-    edgeImg=cv2.morphologyEx(edgeImg,cv2.MORPH_DILATE,(5,5),iterations=3)
+    edgeImg=cv2.morphologyEx(edgeImg,cv2.MORPH_DILATE,(3,3),iterations=2)
 
     lines = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=50,minLineLength=30,maxLineGap=10)
 
@@ -179,6 +178,10 @@ def cardCrop(src):
     w=src.shape[1]
     h=src.shape[0]
 
+    #assumpt: card is center of image and the skew angle is less than 45 degree
+    xcenter=w/2
+    ycenter=h/2
+
     hLine=(x,y+h/2,x+w,y+h/2)
     vLine=(x+w/2,y, x+w/2,y+h)
 
@@ -198,6 +201,7 @@ def cardCrop(src):
     bottomleftPoint=[]
     bottomrightPoint=[]
     
+   
     for line in lines:
         p1=line[0][0:2]
         p2=line[0][2:4]
@@ -206,23 +210,33 @@ def cardCrop(src):
 
         length=getLineLength(p1,p2)
         if(angle<45): # top/bottom line
-            if(p1[1]<hLine[1]):
+            if(p1[1]+p2[1])/2 < ycenter:
                 if maxTLineLen<length:
                     maxTLineLen=length
                     topline=line[0]
-            else:
+            elif (p1[1]+p2[1])/2 > ycenter:
                 if maxBLineLen<length:
                     maxBLineLen=length
                     bottomline=line[0]
         else:
-            if(p1[0]<vLine[0]):
+            if (p1[0]+p2[0])/2 < xcenter:
                 if maxLLineLen<length:
                     maxLLineLen=length
                     leftline=line[0]
-            else:
+            elif (p1[0]+p2[0])/2 > xcenter:
                 if maxRLineLen<length:
                     maxRLineLen=length
                     rightline=line[0]
+
+    'draw line to debug image'
+    if len(topline)>0:
+        cv2.line(lineImg,topline[0:2],topline[2:4],255,1)
+    if len(bottomline)>0:
+        cv2.line(lineImg,bottomline[0:2],bottomline[2:4],255,1)
+    if len(leftline)>0:
+        cv2.line(lineImg,leftline[0:2],leftline[2:4],255,1)
+    if len(rightline)>0:
+        cv2.line(lineImg,rightline[0:2],rightline[2:4],255,1)
 
     if(len(topline)>0 and len(bottomline)>0 and len(leftline)>0 and len(rightline)>0):
         # tính hệ số (a,b,c) của các đường thẳng
@@ -257,6 +271,7 @@ def cardCrop(src):
         x,y,w,h=cv2.boundingRect(np.float32(corners))
         w2=int(w/2)
         h2=int(h/2)
+        
         cv2.line(lineImg,(x,y+h2),(x+w,y+h2),(0,0,255),5) #horizontal
         cv2.line(lineImg,(x+w2,y),(x+w2,y+h),(0,0,255),5) # vertical
 
