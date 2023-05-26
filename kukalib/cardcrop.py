@@ -9,13 +9,14 @@ Output:
 
 import cv2
 import numpy as np
-import os;
+import os
 import sys
 import datetime
+import math
 # getversion
 def getVersionInfo():
-    versionInfo = {"version": "0.2.0" ,
-               "date": datetime.date(2023,3,8)   
+    versionInfo = {"version": "0.3.0" ,
+               "date": datetime.date(2023,5,26)   
                }
     return versionInfo
 #common function
@@ -125,7 +126,7 @@ def get_angle(line1, line2):
     n1 = np.sqrt(d1[0] * d1[0] + d1[1] * d1[1])
     n2 = np.sqrt(d2[0] * d2[0] + d2[1] * d2[1])
     # Compute angle
-    ang = np.acos(p / (n1 * n2))
+    ang = math.acos(p / (n1 * n2))
     # Convert to degrees if you want
     ang = np.rad2deg(ang)
     return ang
@@ -139,6 +140,121 @@ def sobel(gray):
     abs_gradY=cv2.convertScaleAbs(gradY)
     grad=cv2.addWeighted(abs_gradX,1,abs_gradY,1,0)
     return grad
+
+def verifyQuadrilateral(topline,bottomline,leftline,rightline,debug=False):
+    """
+    Check 4 lines can create a  quadrangle shape that meet with following criterion
+    Input: lines in shape (x1,y1,x2,y2,length,angle) 
+    """
+    isQuadrangle=True
+    criterion = True
+    criterionResult=[]
+    a_angle = get_angle(topline[0:4].reshape(2,2),leftline[0:4].reshape(2,2))
+    b_angle = get_angle(topline[0:4].reshape(2,2),rightline[0:4].reshape(2,2))
+    c_angle = get_angle(bottomline[0:4].reshape(2,2),rightline[0:4].reshape(2,2))
+    d_angle = get_angle(bottomline[0:4].reshape(2,2),leftline[0:4].reshape(2,2))
+    if(debug):
+        print("Lines top: {} bottom: {} left: {} right{}".format(topline,bottomline,leftline,rightline))
+        print("Angle A:{:.2f}\tB:{:.2f}\tC:{:.2f}\tD:{:.2f}".format(a_angle,b_angle,c_angle,d_angle))
+
+    #criterion 1
+    minParallelAngle=7 
+    toplineAngle=topline[5]
+    bottomlineAngle=bottomline[5]
+    leftlineAngle = leftline[5]
+    rightlineAngle =rightline[5]
+    criterion = abs(abs(toplineAngle) - abs(bottomlineAngle))<minParallelAngle and abs(abs(leftlineAngle)-abs(rightlineAngle))<minParallelAngle
+    isQuadrangle = isQuadrangle and criterion
+    criterionResult.append(criterion)
+    if(debug):
+        print("Meet criterion 1:",criterion)
+        print("\tLine angle of Top {:.2f} - bottom {:.2f}  - left: {:.2f} - right: {:.2f} ".format(toplineAngle,bottomlineAngle,leftlineAngle,rightlineAngle))
+    
+    #criterion 2
+    diffOppositeAngle=10
+    criterion = (a_angle-b_angle+c_angle-d_angle)/2 <diffOppositeAngle and (a_angle-d_angle+b_angle-c_angle)/2<diffOppositeAngle
+    isQuadrangle = isQuadrangle and criterion
+    criterionResult.append(criterion)
+    if(debug):
+        print("Meet criterion 2:",criterion)
+    #criterion 3
+    averagePerpendicular =25 
+    criterion =  abs((a_angle+b_angle+c_angle+d_angle)/4-90) < averagePerpendicular
+    isQuadrangle =isQuadrangle and criterion
+    criterionResult.append(criterion)
+    if(debug):
+        print("Meet criterion 3:",criterion)    
+
+    return criterionResult,isQuadrangle
+
+def cropImage(src,topline,bottomline,leftline,rightline):
+    """
+    Crop image by 4 qualified lines
+    Input 
+        Line input in shape (1,4)
+    Return debug image and cropped image
+    """
+    lineImg = src.copy()
+    cropedImg = src.copy()
+
+    'draw line to debug image'
+    if len(topline)>0:
+        cv2.line(lineImg,topline[0:2],topline[2:4],255,1)
+    if len(bottomline)>0:
+        cv2.line(lineImg,bottomline[0:2],bottomline[2:4],255,1)
+    if len(leftline)>0:
+        cv2.line(lineImg,leftline[0:2],leftline[2:4],255,1)
+    if len(rightline)>0:
+        cv2.line(lineImg,rightline[0:2],rightline[2:4],255,1)
+
+    if(len(topline)>0 and len(bottomline)>0 and len(leftline)>0 and len(rightline)>0):
+        # tính hệ số (a,b,c) của các đường thẳng
+        aL,bL,cL=calcParams(leftline[0:2],leftline[2:4])
+        aT,bT,cT=calcParams(topline[0:2],topline[2:4])
+
+        aR,bR,cR=calcParams(rightline[0:2],rightline[2:4])
+        aB,bB,cB=calcParams(bottomline[0:2],bottomline[2:4])
+
+        # tìm các giao điểm tl,tr,bl,br
+        topleftPoint=findIntersection((aL,bL,cL),(aT,bT,cT))
+        toprightPoint=findIntersection((aR,bR,cR),(aT,bT,cT))
+        bottomleftPoint=findIntersection((aL,bL,cL),(aB,bB,cB))
+        bottomrightPoint=findIntersection((aR,bR,cR),(aB,bB,cB))
+
+        # check if the polygon has four point
+        corners=np.array([topleftPoint,toprightPoint,bottomleftPoint,bottomrightPoint])
+
+        corners = order_points(corners)
+        
+        destination_corners = find_dest(corners)
+        
+        h, w = src.shape[:2]
+        # Getting the homography.
+        M = cv2.getPerspectiveTransform(np.float32(corners), np.float32(destination_corners))
+        # Perspective transform using homography.
+        cropedImg = cv2.warpPerspective(src, M, (destination_corners[2][0], destination_corners[2][1]),
+                                        flags=cv2.INTER_LINEAR)
+
+    
+        #show debug: middle vertical,hozirontal line of boundingbox
+        x,y,w,h=cv2.boundingRect(np.float32(corners))
+        w2=int(w/2)
+        h2=int(h/2)
+        
+        cv2.line(lineImg,(x,y+h2),(x+w,y+h2),(0,0,255),5) #horizontal
+        cv2.line(lineImg,(x+w2,y),(x+w2,y+h),(0,0,255),5) # vertical
+
+        cv2.circle(lineImg,topleftPoint,3,(0,0,255),3)
+        cv2.circle(lineImg,toprightPoint,3,(0,0,255),3)
+        cv2.circle(lineImg,bottomleftPoint,3,(0,0,255),3)
+        cv2.circle(lineImg,bottomrightPoint,3,(0,0,255),3)
+        
+        cv2.line(lineImg,topleftPoint,toprightPoint,(0,0,255),3)
+        cv2.line(lineImg,toprightPoint,bottomrightPoint,(0,0,255),3)
+        cv2.line(lineImg,bottomrightPoint,bottomleftPoint,(0,0,255),3)
+        cv2.line(lineImg,bottomleftPoint,topleftPoint,(0,0,255),3)
+    
+    return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
 
 def cardCrop(src):
@@ -312,6 +428,120 @@ def cardCrop(src):
     
     return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
+def cardCrop2(src):
+    """
+    version 2: select quadrangle based on criterion of angles of line
+    """
+    cropedImg=src.copy()
+    lineImg=src.copy()
+    
+    #step1: remove text
+    kernel=np.ones((7,7),np.uint8)
+    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=5)
+
+    gray=cv2.cvtColor(dilectImg,cv2.COLOR_BGR2GRAY)
+        
+    blurImg=cv2.GaussianBlur(gray,(5,5),0)
+    #step 2: detect edge and line
+    sobelImg=sobel(blurImg)
+    ret1,edgeImg = cv2.threshold(sobelImg,40,200, cv2.THRESH_OTSU + cv2.THRESH_TOZERO + cv2.THRESH_BINARY)
+
+    ## make egde more dilect
+    edgeImg=cv2.morphologyEx(edgeImg,cv2.MORPH_DILATE,(2,2),iterations=2)
+
+    lines = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=50,minLineLength=30,maxLineGap=10)
+
+    #step3: detect quadrangle
+    x=0
+    y=0
+    w=src.shape[1]
+    h=src.shape[0]
+
+    #assumpt: card is center of image and the skew angle is less than 45 degree
+    xcenter=w/2
+    ycenter=h/2
+
+    hLine=(x,y+h/2,x+w,y+h/2)
+    vLine=(x+w/2,y, x+w/2,y+h)
+
+    hLine=np.array(hLine).astype(np.int32)
+    vLine=np.array(vLine).astype(np.int32)
+
+    topline=[]
+    bottomline=[]
+    leftline=[]
+    rightline=[]
+    topleftPoint=[]
+    toprightPoint=[]
+    bottomleftPoint=[]
+    bottomrightPoint=[]
+
+    toplineList=[]
+    bottomlineList=[]
+    leftlineList=[]
+    rightlineList=[]
+    selectedQuadrangleList=[]
+
+    # grouping lines in top,bottom,left,right
+
+    for line in lines:
+        p1=line[0][0:2]
+        p2=line[0][2:4]
+        angle= getLineAngle(p1,p2)
+        linelength=getLineLength(p1,p2)
+        angle=abs(angle)
+        lineExtend=np.append(line[0],[round(linelength),round(angle)])
+        if(angle<=45): # top/bottom line
+            if(p1[1]+p2[1])/2 < ycenter:
+                toplineList.append(lineExtend)
+            elif (p1[1]+p2[1])/2 > ycenter:
+                bottomlineList.append(lineExtend)
+        else:
+            if (p1[0]+p2[0])/2 < xcenter:
+                leftlineList.append(lineExtend)
+            elif (p1[0]+p2[0])/2 > xcenter:
+                rightlineList.append(lineExtend)
+
+    # converting list(object) to ndarray then sorting length by descending
+    if(len(toplineList) and len(bottomlineList) and len(leftlineList) and len(rightlineList)):
+        toplineList = np.vstack(toplineList)
+        bottomlineList = np.vstack(bottomlineList)
+        leftlineList= np.vstack(leftlineList)
+        rightlineList = np.vstack(rightlineList)
+
+        toplineList = toplineList[toplineList[:,4].argsort()[::-1]]
+        bottomlineList = bottomlineList[bottomlineList[:,4].argsort()[::-1]]
+        leftlineList = leftlineList[leftlineList[:,4].argsort()[::-1]]
+        rightlineList = rightlineList[rightlineList[:,4].argsort()[::-1]]
+
+        stopSearching = False
+        for topline in toplineList:
+            if stopSearching: 
+                break
+            for bottomline in bottomlineList:
+                if stopSearching:
+                    break
+                for leftline in leftlineList:
+                    if stopSearching:
+                        break
+                    for rightline in rightlineList:
+                        criterionResult,checkResult = verifyQuadrilateral(topline,bottomline,leftline,rightline,False)
+                        if(checkResult):
+                            selectedQuadrangleList.append([topline,bottomline,leftline,rightline])
+                            stopSearching=checkResult
+                        if stopSearching:
+                            break
+
+        if(len(selectedQuadrangleList)>0):
+            q =selectedQuadrangleList[0]
+            topline=q[0]
+            bottomline=q[1]
+            leftline=q[2]
+            rightline=q[3]
+            cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint) = cropImage(src,topline[0:4],bottomline[0:4],leftline[0:4],rightline[0:4])
+    
+    return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
+        
 
 if __name__ == '__main__':
     path=sys.argv[1]
@@ -335,7 +565,7 @@ if __name__ == '__main__':
                 continue
 
             print(filename," ---> ", end='')
-            cropedImg,debugImg,_=cardCrop(src)
+            cropedImg,debugImg,_=cardCrop2(src)
             savedFilename=os.path.join(outpath,f)
             savedDebugFileName=os.path.join(outpath,"debug_"+f)
             cv2.imwrite(savedFilename,cropedImg)

@@ -25,17 +25,31 @@ def main_loop():
     file_bytes = np.asarray(bytearray(updloaded_file.read()), dtype=np.uint8)
     src = cv2.imdecode(file_bytes, 1)
     cropedImg,debugImg,(tl,tr,br,bl)=cardCrop(src)
+    cropedImg2,debugImg2,(tl2,tr2,br2,bl2)=cardCrop2(src)
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.subheader("Ảnh gốc")
-        st.image(src,channels='BGR')
-    with col2:
-        st.subheader("Định vị")
-        st.image(debugImg,channels='BGR')
-    with col3:
-        st.subheader("Kết quả")
-        st.image(cropedImg,channels='BGR')
+ 
+    st.subheader("Ảnh gốc")
+    st.image(src,channels='BGR')
+
+    containerv1 = st.container()
+    with containerv1:
+        col2, col3 = st.columns(2)
+        with col2:
+            st.subheader("Định vị v1")
+            st.image(debugImg,channels='BGR')
+        with col3:
+            st.subheader("Kết quả v1")
+            st.image(cropedImg,channels='BGR')
+
+    containerv2 = st.container()
+    with containerv2:
+        col4,col5 = st.columns(2)
+        with col4:
+            st.subheader("Định vị v2")
+            st.image(debugImg2,channels='BGR')
+        with col5:
+            st.subheader("Kết quả v2")
+            st.image(cropedImg2,channels='BGR')
 
     #save uploaded image
 
