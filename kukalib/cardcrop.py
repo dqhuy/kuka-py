@@ -15,8 +15,8 @@ import datetime
 import math
 # getversion
 def getVersionInfo():
-    versionInfo = {"version": "0.3.0" ,
-               "date": datetime.date(2023,5,26)   
+    versionInfo = {"version": "0.3.1" ,
+               "date": datetime.date(2023,5,29)   
                }
     return versionInfo
 #common function
@@ -194,8 +194,8 @@ def cropImage(src,topline,bottomline,leftline,rightline):
         Line input in shape (1,4)
     Return debug image and cropped image
     """
-    lineImg = src.copy()
-    cropedImg = src.copy()
+    lineImg = np.zeros(src.shape,dtype=np.uint8)
+    cropedImg = np.zeros(src.shape,dtype=np.uint8)
 
     'draw line to debug image'
     if len(topline)>0:
@@ -222,13 +222,10 @@ def cropImage(src,topline,bottomline,leftline,rightline):
         bottomrightPoint=findIntersection((aR,bR,cR),(aB,bB,cB))
 
         # check if the polygon has four point
-        corners=np.array([topleftPoint,toprightPoint,bottomleftPoint,bottomrightPoint])
+        corners=np.array([topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint])
 
-        corners = order_points(corners)
-        
         destination_corners = find_dest(corners)
         
-        h, w = src.shape[:2]
         # Getting the homography.
         M = cv2.getPerspectiveTransform(np.float32(corners), np.float32(destination_corners))
         # Perspective transform using homography.
@@ -350,7 +347,7 @@ def cardCrop(src):
         angle=abs(angle)
 
         length=getLineLength(p1,p2)
-        if(angle<45): # top/bottom line
+        if(angle<40): # top/bottom line
             if(p1[1]+p2[1])/2 < ycenter:
                 if maxTLineLen<length:
                     maxTLineLen=length
@@ -394,10 +391,8 @@ def cardCrop(src):
         bottomrightPoint=findIntersection((aR,bR,cR),(aB,bB,cB))
 
         # check if the polygon has four point
-        corners=np.array([topleftPoint,toprightPoint,bottomleftPoint,bottomrightPoint])
+        corners=np.array([topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint])
 
-        corners = order_points(corners)
-        
         destination_corners = find_dest(corners)
         
         h, w = src.shape[:2]
@@ -432,8 +427,8 @@ def cardCrop2(src):
     """
     version 2: select quadrangle based on criterion of angles of line
     """
-    cropedImg=src.copy()
-    lineImg=src.copy()
+    lineImg = np.zeros(src.shape,dtype=np.uint8)
+    cropedImg = np.zeros(src.shape,dtype=np.uint8)
     
     #step1: remove text
     kernel=np.ones((7,7),np.uint8)
@@ -491,7 +486,7 @@ def cardCrop2(src):
         linelength=getLineLength(p1,p2)
         angle=abs(angle)
         lineExtend=np.append(line[0],[round(linelength),round(angle)])
-        if(angle<=45): # top/bottom line
+        if(angle<40): # top/bottom line
             if(p1[1]+p2[1])/2 < ycenter:
                 toplineList.append(lineExtend)
             elif (p1[1]+p2[1])/2 > ycenter:
