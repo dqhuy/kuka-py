@@ -79,6 +79,9 @@ def get_confidence_2quard(quadr_true,quadr_pred):
     return mean_c
 
 def main(rootPath,savepath,debug=False):
+    #set test function to cardCrop2
+    testfunction=cardCrop2
+
     imagePath=os.path.join(rootPath,"images")
     labelPath=os.path.join(rootPath,"ground_truth")
 
@@ -94,7 +97,7 @@ def main(rootPath,savepath,debug=False):
         if(type(src)!=np.ndarray):
                 continue
         #get predict value
-        cropedImg,debugImg,(tl_pred,tr_pred,br_pred,bl_pred)=cardCrop(src)
+        cropedImg,debugImg,(tl_pred,tr_pred,br_pred,bl_pred)=testfunction(src)
         if(debug):
             outpath= savepath
             if(not os.path.exists(outpath)):
@@ -120,7 +123,7 @@ if __name__ == '__main__':
     import argparse
     import shutil
     parser=argparse.ArgumentParser()
-    parser.add_argument('path',help='Path to root folder that containt 2 sub image /Images and /Ground_Truth')           # positional argument
+    parser.add_argument('-p','--path',help='Path to root folder that containt 2 sub image /Images and /Ground_Truth')           # positional argument
     parser.add_argument('-d', '--debug',default=False,type=bool,help="write debug image to output file") 
     parser.add_argument('-sp', '--savepath',help="path to save output") 
 
@@ -128,4 +131,5 @@ if __name__ == '__main__':
     rootPath=args.path
     debug=args.debug
     savepath=args.savepath
+    
     main(rootPath,savepath,debug)

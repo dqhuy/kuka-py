@@ -15,8 +15,8 @@ import datetime
 import math
 # getversion
 def getVersionInfo():
-    versionInfo = {"version": "0.3.1" ,
-               "date": datetime.date(2023,5,29)   
+    versionInfo = {"version": "0.3.2" ,
+               "date": datetime.date(2023,6,19)   
                }
     return versionInfo
 #common function
@@ -55,9 +55,10 @@ def calcParams(p1,p2):
 
 def order_points(pts):
     """
+    BE CAREFULL: this is NOT correct if input points is not in shape of square of rectangular
     Rearrange coordinates to order:
       top-left, top-right, bottom-right, bottom-left
-      
+    
     Parameters
     -
         @pts: list of point
@@ -112,7 +113,7 @@ def getLineLength(p1, p2):
     yDiff = y2 - y1
     return np.sqrt((xDiff**2)+(yDiff**2))
 
-def get_angle(line1, line2):
+def get2Lineangle(line1, line2):
     """
     Get angle of two lines
     Input line in shape (2,2)
@@ -141,7 +142,17 @@ def sobel(gray):
     grad=cv2.addWeighted(abs_gradX,1,abs_gradY,1,0)
     return grad
 
-def verifyQuadrilateral(topline,bottomline,leftline,rightline,debug=False):
+def isPoinOnLeft(line,point):
+    """
+    line in shape (2,2) , point in shape(1,2)
+    return: true if point is left/above line
+    """
+    a=line[0]
+    b=line[1]
+    c=point
+    return (b[0] - a[0])*(c[1] - a[1]) - (b[1] - a[1])*(c[0] - a[0]) > 0;
+
+def verifyQuadrilateral(toplineExtra,bottomlineExtra,leftlineExtra,rightlineExtra,debug=False):
     """
     Check 4 lines can create a  quadrangle shape that meet with following criterion
     Input: lines in shape (x1,y1,x2,y2,length,angle) 
@@ -149,20 +160,28 @@ def verifyQuadrilateral(topline,bottomline,leftline,rightline,debug=False):
     isQuadrangle=True
     criterion = True
     criterionResult=[]
-    a_angle = get_angle(topline[0:4].reshape(2,2),leftline[0:4].reshape(2,2))
-    b_angle = get_angle(topline[0:4].reshape(2,2),rightline[0:4].reshape(2,2))
-    c_angle = get_angle(bottomline[0:4].reshape(2,2),rightline[0:4].reshape(2,2))
-    d_angle = get_angle(bottomline[0:4].reshape(2,2),leftline[0:4].reshape(2,2))
+
+    topline = toplineExtra[0:4].reshape(2,2)
+    bottomline = bottomlineExtra[0:4].reshape(2,2)
+    leftline = leftlineExtra[0:4].reshape(2,2)
+    rightline = rightlineExtra[0:4].reshape(2,2)
+
+    a_angle = get2Lineangle(topline,leftline)
+    b_angle = get2Lineangle(topline,rightline)
+    c_angle = get2Lineangle(bottomline,rightline)
+    d_angle = get2Lineangle(bottomline,leftline)
+
     if(debug):
         print("Lines top: {} bottom: {} left: {} right{}".format(topline,bottomline,leftline,rightline))
         print("Angle A:{:.2f}\tB:{:.2f}\tC:{:.2f}\tD:{:.2f}".format(a_angle,b_angle,c_angle,d_angle))
 
+   
     #criterion 1
-    minParallelAngle=7 
-    toplineAngle=topline[5]
-    bottomlineAngle=bottomline[5]
-    leftlineAngle = leftline[5]
-    rightlineAngle =rightline[5]
+    minParallelAngle=10 
+    toplineAngle=toplineExtra[5]
+    bottomlineAngle=bottomlineExtra[5]
+    leftlineAngle = leftlineExtra[5]
+    rightlineAngle =rightlineExtra[5]
     criterion = abs(abs(toplineAngle) - abs(bottomlineAngle))<minParallelAngle and abs(abs(leftlineAngle)-abs(rightlineAngle))<minParallelAngle
     isQuadrangle = isQuadrangle and criterion
     criterionResult.append(criterion)
@@ -194,7 +213,7 @@ def cropImage(src,topline,bottomline,leftline,rightline):
         Line input in shape (1,4)
     Return debug image and cropped image
     """
-    lineImg = np.zeros(src.shape,dtype=np.uint8)
+    lineImg = src.copy()
     cropedImg = np.zeros(src.shape,dtype=np.uint8)
 
     'draw line to debug image'
@@ -208,6 +227,7 @@ def cropImage(src,topline,bottomline,leftline,rightline):
         cv2.line(lineImg,rightline[0:2],rightline[2:4],255,1)
 
     if(len(topline)>0 and len(bottomline)>0 and len(leftline)>0 and len(rightline)>0):
+        
         # tính hệ số (a,b,c) của các đường thẳng
         aL,bL,cL=calcParams(leftline[0:2],leftline[2:4])
         aT,bT,cT=calcParams(topline[0:2],topline[2:4])
@@ -504,10 +524,21 @@ def cardCrop2(src):
         leftlineList= np.vstack(leftlineList)
         rightlineList = np.vstack(rightlineList)
 
-        toplineList = toplineList[toplineList[:,4].argsort()[::-1]]
-        bottomlineList = bottomlineList[bottomlineList[:,4].argsort()[::-1]]
-        leftlineList = leftlineList[leftlineList[:,4].argsort()[::-1]]
-        rightlineList = rightlineList[rightlineList[:,4].argsort()[::-1]]
+        #get top 20% line only
+        num_percent=0.2
+        num_selected_line=0
+        if(len(toplineList)*num_percent>1):
+            num_selected_line=int(len(toplineList)*num_percent)
+            toplineList = toplineList[toplineList[:,4].argsort()[::-1]][:num_selected_line]
+        if(len(bottomlineList)*num_percent>1):
+            num_selected_line=int(len(bottomlineList)*num_percent)
+            bottomlineList = bottomlineList[bottomlineList[:,4].argsort()[::-1]][:num_selected_line]
+        if(len(leftlineList)*num_percent>1):
+            num_selected_line=int(len(leftlineList)*num_percent)
+            leftlineList = leftlineList[leftlineList[:,4].argsort()[::-1]][:num_selected_line]
+        if(len(rightlineList)*num_percent>1):
+            num_selected_line=int(len(rightlineList)*num_percent)
+            rightlineList = rightlineList[rightlineList[:,4].argsort()[::-1]][:num_selected_line]
 
         stopSearching = False
         for topline in toplineList:
@@ -539,6 +570,8 @@ def cardCrop2(src):
         
 
 if __name__ == '__main__':
+    if(len(sys.argv)<2):
+        print('help: cardcrop [image_path]')
     path=sys.argv[1]
 
     if(os.path.exists(path)==False):
