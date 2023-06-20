@@ -24,23 +24,13 @@ def main_loop():
     
     file_bytes = np.asarray(bytearray(updloaded_file.read()), dtype=np.uint8)
     src = cv2.imdecode(file_bytes, 1)
-    cropedImg,debugImg,(tl,tr,br,bl)=cardCrop(src)
     cropedImg2,debugImg2,(tl2,tr2,br2,bl2)=cardCrop2(src)
     
  
     st.subheader("Ảnh gốc")
     st.image(src,channels='BGR')
 
-    containerv1 = st.container()
-    with containerv1:
-        col2, col3 = st.columns(2)
-        with col2:
-            st.subheader("Định vị v1")
-            st.image(debugImg,channels='BGR')
-        with col3:
-            st.subheader("Kết quả v1")
-            st.image(cropedImg,channels='BGR')
-
+   
     containerv2 = st.container()
     with containerv2:
         col4,col5 = st.columns(2)

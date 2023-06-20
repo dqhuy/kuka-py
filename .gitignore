@@ -6,3 +6,4 @@ result.csv
 *.pyc
 *.pyc
 *.pyc
+kukalib/__pycache__
