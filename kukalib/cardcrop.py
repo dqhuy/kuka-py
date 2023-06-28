@@ -15,8 +15,8 @@ import datetime
 import math
 # getversion
 def getVersionInfo():
-    versionInfo = {"version": "0.3.2" ,
-               "date": datetime.date(2023,6,19)   
+    versionInfo = {"version": "0.3.3" ,
+               "date": datetime.date(2023,6,28)   
                }
     return versionInfo
 #common function
@@ -177,7 +177,7 @@ def verifyQuadrilateral(toplineExtra,bottomlineExtra,leftlineExtra,rightlineExtr
 
    
     #criterion 1
-    minParallelAngle=10 
+    minParallelAngle=20 
     toplineAngle=toplineExtra[5]
     bottomlineAngle=bottomlineExtra[5]
     leftlineAngle = leftlineExtra[5]
@@ -186,7 +186,7 @@ def verifyQuadrilateral(toplineExtra,bottomlineExtra,leftlineExtra,rightlineExtr
     isQuadrangle = isQuadrangle and criterion
     criterionResult.append(criterion)
     if(debug):
-        print("Meet criterion 1:",criterion)
+        print("Criterion 1: min parallel angle:{} - Meet :{}  ".format( minParallelAngle ,criterion))
         print("\tLine angle of Top {:.2f} - bottom {:.2f}  - left: {:.2f} - right: {:.2f} ".format(toplineAngle,bottomlineAngle,leftlineAngle,rightlineAngle))
     
     #criterion 2
@@ -258,21 +258,397 @@ def cropImage(src,topline,bottomline,leftline,rightline):
         w2=int(w/2)
         h2=int(h/2)
         
-        cv2.line(lineImg,(x,y+h2),(x+w,y+h2),(0,0,255),5) #horizontal
-        cv2.line(lineImg,(x+w2,y),(x+w2,y+h),(0,0,255),5) # vertical
+        cv2.line(lineImg,(x,y+h2),(x+w,y+h2),(0,0,255),2) #horizontal
+        cv2.line(lineImg,(x+w2,y),(x+w2,y+h),(0,0,255),2) # vertical
 
-        cv2.circle(lineImg,topleftPoint,3,(0,0,255),3)
-        cv2.circle(lineImg,toprightPoint,3,(0,0,255),3)
-        cv2.circle(lineImg,bottomleftPoint,3,(0,0,255),3)
-        cv2.circle(lineImg,bottomrightPoint,3,(0,0,255),3)
+        cv2.circle(lineImg,topleftPoint,2,(0,0,255),2)
+        cv2.circle(lineImg,toprightPoint,2,(0,0,255),2)
+        cv2.circle(lineImg,bottomleftPoint,2,(0,0,255),2)
+        cv2.circle(lineImg,bottomrightPoint,2,(0,0,255),2)
         
-        cv2.line(lineImg,topleftPoint,toprightPoint,(0,0,255),3)
-        cv2.line(lineImg,toprightPoint,bottomrightPoint,(0,0,255),3)
-        cv2.line(lineImg,bottomrightPoint,bottomleftPoint,(0,0,255),3)
-        cv2.line(lineImg,bottomleftPoint,topleftPoint,(0,0,255),3)
+        cv2.line(lineImg,topleftPoint,toprightPoint,(0,0,255),2)
+        cv2.line(lineImg,toprightPoint,bottomrightPoint,(0,0,255),2)
+        cv2.line(lineImg,bottomrightPoint,bottomleftPoint,(0,0,255),2)
+        cv2.line(lineImg,bottomleftPoint,topleftPoint,(0,0,255),2)
     
     return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint)
 
+def euclideanDistance(prop1,prop2):
+    distance = math.sqrt(prop1*prop1+prop2*prop2)
+    return distance
+
+def clusteringLineInTBLR(lines,img_heigh,img_width):
+    '''
+        cluster lines into 4 group base on position of image center
+        lines in shape (x1,y1,x2,y2)
+        return list of top/bottom/left/right in separate
+    '''
+    toplineList=[]
+    bottomlineList=[]
+    leftlineList=[]
+    rightlineList=[]
+
+    xcenter=img_width/2
+    ycenter=img_heigh/2
+    # grouping lines in top,bottom,left,right
+
+    for line in lines:
+        p1=line[0][0:2]
+        p2=line[0][2:4]
+        angle= getLineAngle(p1,p2)
+        linelength=getLineLength(p1,p2)
+        angle=abs(angle)
+        if(angle<40): # top/bottom line
+            if(p1[1]+p2[1])/2 < ycenter:
+                toplineList.append(line)
+            elif (p1[1]+p2[1])/2 > ycenter:
+                bottomlineList.append(line)
+        else:
+            if (p1[0]+p2[0])/2 < xcenter:
+                leftlineList.append(line)
+            elif (p1[0]+p2[0])/2 > xcenter:
+                rightlineList.append(line)
+
+    # converting list(object) to ndarray then sorting length by descending
+    # if(len(toplineList) and len(bottomlineList) and len(leftlineList) and len(rightlineList)):
+    #     toplineList = np.vstack(toplineList)
+    #     bottomlineList = np.vstack(bottomlineList)
+    #     leftlineList= np.vstack(leftlineList)
+    #     rightlineList = np.vstack(rightlineList)
+    
+    toplineList = np.asarray(toplineList)
+    bottomlineList = np.asarray(bottomlineList)
+    leftlineList= np.asarray(leftlineList)
+    rightlineList = np.asarray(rightlineList)
+
+    return toplineList,bottomlineList,leftlineList,rightlineList
+
+def sortLinePoint(lines,sort_axis):
+    '''
+        input lines in shape (num_line,4) each line is (x1,y1,x2,y2)
+        sort_axis = 0 : sort by X otherwise sorting by Y
+        perfome 2 sorting
+            first sorting point P1,P1 in a line 
+            second sorting line in lines  array
+    '''
+    #first sort
+    assert(len(lines.shape)==2)
+    for i in range(len(lines)):
+        lineItem= lines[i].reshape(2,2)
+        lineItem = lineItem[lineItem[:,sort_axis].argsort()]
+        lines[i] = lineItem.reshape(1,4)
+    #second sort
+    lines = lines[lines[:,sort_axis].argsort()]
+
+    return lines
+
+def getLineLengthAngle(lines):
+    '''
+        add extra infomation length and angle to line in shape(num_line,4)
+        return
+            (x1,y1,x2,y2,length,angle)
+    '''
+    newList = []
+    for line in lines:
+        p1=line[0:2]
+        p2=line[2:4]
+        angle= getLineAngle(p1,p2)
+        linelength=getLineLength(p1,p2)
+        lineExtend=np.append(line[0:4],[round(linelength),round(angle)])
+        newList.append(lineExtend)
+    newList=np.asarray(newList)
+    return newList
+
+def drawLinePoint(img,linesP,lineColor,lineWidth):
+  for line in linesP:
+    x1=int(line[0])
+    y1=int(line[1])
+    x2=int(line[2])
+    y2=int(line[3])
+    cv2.line(img,(x1,y1),(x2,y2),lineColor,lineWidth) 
+
+def convertLinePoint2Slope(linesP):
+    '''
+        convert line by 2 point (x1,y1,x2,y2) to format slope and y-intercept (mb) y=mx+b
+        m = (x2-x1) / y2-y1 ; b = y1-mx1
+    '''
+    newList =[]
+    for line in linesP:
+        xDiff = line[2] - line[0]
+        yDiff = line[3] - line[1]
+        if(xDiff==0):
+            m=0
+            b=line[0]
+        else:
+            m = yDiff/xDiff
+            b = line[1] - m*line[0]
+        newline =[line[0],line[1],line[2],line[3],m,b]
+        newList.append(newline)
+    newList = np.asarray(newList)
+    return newList
+
+def convertLinePoint2RhoTheta(linesP):
+    '''
+        add roth and theta to line
+        ref: https://math.stackexchange.com/questions/1796400/estimate-line-in-theta-rho-space-given-2-points
+    '''
+    newList = []
+    for line in linesP:
+        xDiff = line[2] - line[0]
+        yDiff = line[3] - line[1]
+
+        theta= math.atan2(yDiff,xDiff)
+
+        if(xDiff==0):
+            rho=line[0]
+        else:
+            m = yDiff/xDiff
+             # r=|y1−mx1| / sqrt(m^2+1)
+            rho = abs(line[1]-m*line[0]) / math.sqrt(m*m +1)
+       
+        newline =[line[0],line[1],line[2],line[3],rho,theta]
+        newList.append(newline)
+    newList = np.asarray(newList)
+    return newList
+
+def getFittingLine(lines,axis):
+    '''
+        joing multiple line into single line by using pair min/max point from list
+        input: lines in shape (x1,y1,x2,y2)
+        axis = 0 then compare by X ; axis = 1 compare by Y
+        return: a  line by minPoint() to maxPoint()
+    '''
+    #convert to shape (x,y)
+    tempList = lines.reshape(len(lines)*2,2)
+    minPoint = tempList[tempList[:,axis].argmin()]
+    maxPoint = tempList[tempList[:,axis].argmax()]
+    fitline=[minPoint[0],minPoint[1],maxPoint[0],maxPoint[1]]
+    return fitline
+
+def mergingLines(linesWithRhoTheta,rho_threshold,theta_threshold,max_gap,axis):
+    '''
+    try to find and group similarity lines by rho and theta
+    then merge them into single line
+    
+        Parameters:
+            linesWithRhoTheta: in shape(x1,y1,x2,y2,rho,theta)
+            axis: = 1 join horizontal lines otherwise vertical lines
+        
+        Returns
+            list of merged lines
+    '''
+    num_line = len(linesWithRhoTheta)
+    combineIndex=[]
+    for i in range(num_line):
+        combineIndex.append([])
+    combineLines=[]
+    max_threshold = euclideanDistance(rho_threshold,theta_threshold)
+    for i in range(num_line):
+        index = i
+        for j in range(i,num_line):
+            distanceI = linesWithRhoTheta[i][4]
+            distanceJ = linesWithRhoTheta[j][4]
+            slopeI =linesWithRhoTheta[i][5]
+            slopeJ =linesWithRhoTheta[j][5]
+            disDiff = abs(distanceI - distanceJ)
+            slopeDiff = abs(slopeI-slopeJ)
+            linedistance =euclideanDistance(slopeDiff,disDiff)
+            canCombined=False
+            
+            if (linedistance<=max_threshold):
+                canCombined=True
+                if(i!=j):
+                    if(axis==0):# check gap x
+                        canCombined= (linesWithRhoTheta[j][0] - linesWithRhoTheta[i][2])<=max_gap
+                    else: # check gap y
+                        canCombined= (linesWithRhoTheta[j][1] - linesWithRhoTheta[i][3])<=max_gap
+                        
+            if canCombined:
+                isCombined = False
+                for w in range(i):
+                    for u in range(len(combineIndex[w])):
+                        if combineIndex[w][u] == j:
+                            isCombined=True
+                            break
+                        if(combineIndex[w][u]==i): 
+                            index =w
+                    if(isCombined):
+                        break
+                if(not isCombined):
+                   combineIndex[index].append(j)
+
+    for i in range(len(combineIndex)):
+        if(len(combineIndex[i])==0):
+            continue
+        tempLines=[]
+        for j in range(len(combineIndex[i])):
+            tempLines.append(linesWithRhoTheta[combineIndex[i][j]][0:4])
+
+        tempLines = np.asarray(tempLines)
+        fitline=getFittingLine(tempLines,axis)
+        combineLines.append(fitline)
+
+    combineLines=np.asarray(combineLines)    
+    return combineLines
+
+def getQuadrangleByLength(topLineList,bottomLineList,leftLineList,rightLineList):
+    """
+        try to find quadrangle base on top 20% longest line only
+    """
+    topLine=[]
+    bottomLine=[]
+    leftLine=[]
+    rightLine=[]
+
+    topLineList = getLineLengthAngle(topLineList)
+    bottomLineList = getLineLengthAngle(bottomLineList)
+    leftLineList = getLineLengthAngle(leftLineList)
+    rightLineList = getLineLengthAngle(rightLineList)
+    
+    num_percent=0.2
+    num_selected_line=0
+    
+    if(len(topLineList)*num_percent>1):
+        num_selected_line=int(len(topLineList)*num_percent)
+    else:
+        num_selected_line=len(topLineList)
+    topLineList = topLineList[topLineList[:,4].argsort()[::-1]][:num_selected_line]
+
+    if(len(bottomLineList)*num_percent>1):
+        num_selected_line=int(len(bottomLineList)*num_percent)
+    else:
+        num_selected_line=len(bottomLineList)
+    bottomLineList = bottomLineList[bottomLineList[:,4].argsort()[::-1]][:num_selected_line]
+    
+    if(len(leftLineList)*num_percent>1):
+        num_selected_line=int(len(leftLineList)*num_percent)
+    else:
+        num_selected_line= len(leftLineList)
+    leftLineList = leftLineList[leftLineList[:,4].argsort()[::-1]][:num_selected_line]
+
+    if(len(rightLineList)*num_percent>1):
+        num_selected_line=int(len(rightLineList)*num_percent)
+    else:
+        num_selected_line=len(rightLineList)
+    rightLineList = rightLineList[rightLineList[:,4].argsort()[::-1]][:num_selected_line]
+
+    stopSearching = False
+    selectedQuadrangleList=[]
+    for tl in topLineList:
+        if stopSearching: 
+            break
+        for bl in bottomLineList:
+            if stopSearching:
+                break
+            for ll in leftLineList:
+                if stopSearching:
+                    break
+                for rl in rightLineList:
+                    criterionResult,checkResult = verifyQuadrilateral(tl,bl,ll,rl,False)
+                    if(checkResult):
+                        selectedQuadrangleList.append([tl,bl,ll,rl])
+                        stopSearching=checkResult
+                    if stopSearching:
+                        break
+
+    if(len(selectedQuadrangleList)>0):
+        q =selectedQuadrangleList[0]
+        topLine=q[0].astype(int)
+        bottomLine=q[1].astype(int)
+        leftLine=q[2].astype(int)
+        rightLine=q[3].astype(int)
+
+    return topLine,bottomLine,leftLine,rightLine
+
+def cropDocument(src):
+    """
+        try to detect 4 edge then crop and rectify document
+    """
+
+    #varible for return of function
+    lineImg = np.zeros(src.shape,dtype=np.uint8)
+    cropedImg = np.zeros(src.shape,dtype=np.uint8)
+    hasCropped=False
+    topleftPoint=[]
+    toprightPoint=[]
+    bottomleftPoint=[]
+    bottomrightPoint=[]
+
+    #step1: remove text and convert to gray
+    kernel=np.ones((7,7),np.uint8)
+    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=5)
+
+    gray=cv2.cvtColor(dilectImg,cv2.COLOR_BGR2GRAY)
+        
+    
+    #step 2: detect edge and line
+    blurImg=cv2.GaussianBlur(gray,(5,5),0)
+    sobelImg=sobel(blurImg)
+    ret1,edgeImg = cv2.threshold(sobelImg,40,200, cv2.THRESH_OTSU + cv2.THRESH_TOZERO + cv2.THRESH_BINARY)
+
+    ## make egde more dilect
+    edgeImg=cv2.morphologyEx(edgeImg,cv2.MORPH_DILATE,(2,2),iterations=2)
+
+    linesP = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=50,minLineLength=30,maxLineGap=10)
+
+    #step3: detect quadrangle
+    img_height = gray.shape[0]
+    img_width=gray.shape[1]
+
+    #variable threshold and gap used for merging lines
+    rho_threshold =2 
+    theta_threshold = 3*np.pi/180
+    max_gap_x = int(0.05*img_width)
+    max_gap_y = int(0.05*img_height)
+
+    topLineList=[]
+    bottomLineList=[]
+    leftLineList=[]
+    rightLineList=[]
+
+    #get lines by hough
+    linesP = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=50,minLineLength=30,maxLineGap=10)    
+
+    #clustering lines into 4 group
+    topLineList,bottomLineList,leftLineList,rightLineList=clusteringLineInTBLR(linesP,img_height,img_width)
+    
+    # merging and 
+    if (len(topLineList)>0 and len(bottomLineList)>0 and len(leftLineList)>0 and len(rightLineList)>0):
+        
+        # sort line in order befor merging
+        topLineList = sortLinePoint(np.squeeze(topLineList,axis=1),sort_axis=0)
+        bottomLineList = sortLinePoint( np.squeeze(bottomLineList,axis=1),sort_axis=0)
+
+        leftLineList = sortLinePoint(np.squeeze(leftLineList,axis=1),sort_axis=1)
+        rightLineList = sortLinePoint( np.squeeze(rightLineList,axis=1),sort_axis=1)
+
+        # convert to rho_theta then do merging lines
+        topLineListRhoTheta = convertLinePoint2RhoTheta(topLineList)
+        mergedTopLineList = mergingLines(topLineListRhoTheta,rho_threshold,theta_threshold,max_gap_x,axis=0)
+
+        bottomLineListRhoTheta = convertLinePoint2RhoTheta(bottomLineList)
+        mergedBottomLineList = mergingLines(bottomLineListRhoTheta,rho_threshold,theta_threshold,max_gap_x,axis=0)
+
+        leftLineListRhoTheta = convertLinePoint2RhoTheta(leftLineList)
+        mergedLeftLineList = mergingLines(leftLineListRhoTheta,rho_threshold,theta_threshold,max_gap_y,axis=1)
+
+        rightLineListRhoTheta = convertLinePoint2RhoTheta(rightLineList)
+        mergedRightLineList = mergingLines(rightLineListRhoTheta,rho_threshold,theta_threshold,max_gap_y,axis=1)
+
+        #try to find 4 edges
+        topLine,bottomLine,leftLine,rightLine = getQuadrangleByLength(mergedTopLineList,mergedBottomLineList,mergedLeftLineList,mergedRightLineList)
+
+        #crop image if found  4 edge
+        if(len(topLine)>0 and len(bottomLine)>0 and len(leftLine)>0 and len(rightLine)>0):
+            cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint) = cropImage(src,topLine[0:4],bottomLine[0:4],leftLine[0:4],rightLine[0:4])
+            hasCropped=True
+            #draw mergedLine
+            drawLinePoint(lineImg,mergedTopLineList,(255,0,0),2)
+            drawLinePoint(lineImg,mergedBottomLineList,(255,0,0),2)
+            drawLinePoint(lineImg,mergedLeftLineList,(255,0,0),2)
+            drawLinePoint(lineImg,mergedRightLineList,(255,0,0),2)
+
+    return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint),hasCropped
 
 def cardCrop(src):
     """
@@ -570,6 +946,9 @@ def cardCrop2(src):
         
 
 if __name__ == '__main__':
+    
+    import time
+
     if(len(sys.argv)<2):
         print('help: cardcrop [image_path]')
     path=sys.argv[1]
@@ -578,12 +957,15 @@ if __name__ == '__main__':
         print('Path is not exist')
         sys.exit()
     
+    totalFile=0
+    totalTime =0
     if(os.path.isdir(path)):
         #create output dir
         outpath=os.path.join(path,"out")
         if(os.path.exists(outpath)==False):
             os.mkdir(outpath)
         for f in os.listdir(path):
+            totalFile +=1
             filename=os.path.join(path,f)
             if(os.path.isfile(filename)==False):
                 continue
@@ -593,13 +975,21 @@ if __name__ == '__main__':
                 continue
 
             print(filename," ---> ", end='')
-            cropedImg,debugImg,_=cardCrop2(src)
+            startTime = time.time()
+            cropedImg,debugImg,_,_=cropDocument(src)
+            endTime = time.time()
+            elapsedTime = endTime - startTime
+            totalTime +=elapsedTime
+
             savedFilename=os.path.join(outpath,f)
             savedDebugFileName=os.path.join(outpath,"debug_"+f)
             cv2.imwrite(savedFilename,cropedImg)
             cv2.imwrite(savedDebugFileName,debugImg)
-            print("Done")
-
+            print("Done \t Time (s):", elapsedTime)
+        avrageTime = 0
+        if(totalFile>0):
+             averageTime = totalTime/totalFile
+        print("Total file: {} \Average time(s): {:4f}".format(totalFile,averageTime))
     else:
         filename=path
         src=cv2.imread(filename)    

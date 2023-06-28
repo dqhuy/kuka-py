@@ -1,4 +1,5 @@
 from kukalib.cardcrop import *
+from kukalib.docdeskew import *
 
 import streamlit as st
 
@@ -24,8 +25,9 @@ def main_loop():
     
     file_bytes = np.asarray(bytearray(updloaded_file.read()), dtype=np.uint8)
     src = cv2.imdecode(file_bytes, 1)
-    cropedImg2,debugImg2,(tl2,tr2,br2,bl2)=cardCrop2(src)
-    
+    cropedImg2,debugImg2,(tl2,tr2,br2,bl2),hasCropped=cropDocument(src)
+    if(not hasCropped):
+        cropedImg2,angle,debugImg2=deskew(src)
  
     st.subheader("Ảnh gốc")
     st.image(src,channels='BGR')
@@ -35,10 +37,10 @@ def main_loop():
     with containerv2:
         col4,col5 = st.columns(2)
         with col4:
-            st.subheader("Định vị v2")
+            st.subheader("Định vị ")
             st.image(debugImg2,channels='BGR')
         with col5:
-            st.subheader("Kết quả v2")
+            st.subheader("Kết quả xử lý")
             st.image(cropedImg2,channels='BGR')
 
     #save uploaded image
