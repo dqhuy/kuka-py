@@ -40,7 +40,10 @@ def main_loop():
             st.subheader("Định vị ")
             st.image(debugImg2,channels='BGR')
         with col5:
-            st.subheader("Kết quả xử lý")
+            if(hasCropped):
+                st.subheader("Kết quả xử lý")
+            else:
+                st.subheader("Góc nghiêng: " + str(angle))
             st.image(cropedImg2,channels='BGR')
 
     #save uploaded image
