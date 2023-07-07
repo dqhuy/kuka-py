@@ -119,6 +119,8 @@ def main(rootPath,savepath,debug=False):
                 confidence=get_confidence_2quard((tl,tr,br,bl),(tl_pred,tr_pred,br_pred,bl_pred))
                 print(f,"\t", confidence)  
 
+
+
 if __name__ == '__main__':
     import argparse
     import shutil
