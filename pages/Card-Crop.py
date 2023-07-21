@@ -11,8 +11,8 @@ import datetime
 def main_loop():
     versionInfo = getVersionInfo()
 
-    st.set_page_config(page_title="Card Croping Tool")
-    st.title("Demo Tool: Card Croping")
+    st.set_page_config(page_title="Document Cropping Tool")
+    st.title("Demo Tool: Document Cropping")
     st.text("Version: " + versionInfo["version"] + " - Release date:" + versionInfo["date"].strftime("%Y-%m-%d"))
 
     st.subheader("Crop card từ ảnh chụp và chỉnh nghiêng ") 

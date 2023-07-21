@@ -16,8 +16,8 @@ import math
 import matplotlib.pyplot as plt
 # getversion
 def getVersionInfo():
-    versionInfo = {"version": "0.3.5" ,
-               "date": datetime.date(2023,7,7)   
+    versionInfo = {"version": "0.3.6" ,
+               "date": datetime.date(2023,7,21)   
                }
     return versionInfo
 #common function
@@ -592,15 +592,31 @@ def getQuadrangleByLength(topLineList,bottomLineList,leftLineList,rightLineList,
 
     return topLine,bottomLine,leftLine,rightLine
 
+def biggestContour(contours):
+    biggest = np.array([])
+    max_area = 0
+    minArea = 5000
+    for i in contours:
+        area = cv2.contourArea(i)
+        if area >= minArea:
+            peri = cv2.arcLength(i, True)
+            approx = cv2.approxPolyDP(i, 0.02 * peri, True)
+            if  len(approx) == 4 and area > max_area  :
+                biggest = approx
+                max_area = area
+    return biggest
+
 def cropDocument(src):
     """
         try to detect 4 edge then crop and rectify document
+        algorithm: try to using biggest contour t if not then using hough to find 4 longest edges
     """
 
     #varible for return of function
     lineImg = np.zeros(src.shape,dtype=np.uint8)
     cropedImg = np.zeros(src.shape,dtype=np.uint8)
     hasCropped=False
+
     topleftPoint=[]
     toprightPoint=[]
     bottomleftPoint=[]
@@ -619,6 +635,36 @@ def cropDocument(src):
     minLineLength =int(0.1*min(img_width,img_height))
     maxLineGap = int(0.01*max(img_width,img_height))
 
+    #Method 1: using biggest contour
+    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY) # CONVERT IMAGE TO GRAY SCALE
+    blurImg = cv2.GaussianBlur(gray, (5, 5), 1) # ADD GAUSSIAN BLUR
+
+    edgeImg = cv2.Canny(blurImg,40,200) # APPLY CANNY BLUR
+    kernel = np.ones((7, 7))
+    edgeImg = cv2.dilate(edgeImg, kernel, iterations=2) # APPLY DILATION
+    edgeImg = cv2.erode(edgeImg, kernel, iterations=1)  # APPLY EROSION
+
+    ## FIND ALL COUNTOURS
+    contours, hierarchy = cv2.findContours(edgeImg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # FIND ALL CONTOURS
+    biggest = biggestContour(contours) # FIND THE BIGGEST CONTOUR
+
+    if len(biggest)==4:
+        biggest = biggest.reshape(4,2)
+        biggest_order = order_points(biggest)
+        x_b,y_b,w_b,h_b = cv2.boundingRect(np.array(biggest_order).reshape(4,1,2))
+        if(w_b*h_b >= 0.33*(img_height*img_width)):
+            topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint = biggest_order
+            topLine = np.array([topleftPoint,toprightPoint]).reshape(4)
+            bottomLine = np.array([bottomleftPoint,bottomrightPoint]).reshape(4)
+            leftLine = np.array([topleftPoint,bottomleftPoint]).reshape(4)
+            rightLine = np.array([toprightPoint,bottomrightPoint]).reshape(4)
+            cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint) = cropImage(src,topLine[0:4],bottomLine[0:4],leftLine[0:4],rightLine[0:4])
+            hasCropped=True
+
+            return cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint),hasCropped
+
+
+    # Method 2: using longest edge
     #step1: remove text and convert to gray
     kernel=np.ones((7,7),np.uint8)
     dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=5)
@@ -643,9 +689,7 @@ def cropDocument(src):
 
     linesP =[]
     linesP = cv2.HoughLinesP(edgeImg,rho=1,theta=1*np.pi/180,threshold=minline_threshold,minLineLength=minLineLength,maxLineGap=maxLineGap)
-    if(not linesP is None and len(linesP)>200):
-        print("Total line: {} ".format(len(linesP)),end='')
-        print("-->Rejected ",end='')
+   
     if(not linesP is None and len(linesP)>0 and len(linesP)<=200):
         #clustering lines into 4 group
         topLineList,bottomLineList,leftLineList,rightLineList=clusteringLineInTBLR(linesP,img_height,img_width)
