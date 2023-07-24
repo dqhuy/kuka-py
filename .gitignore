@@ -7,3 +7,5 @@ result.csv
 *.pyc
 *.pyc
 kukalib/__pycache__
+kukalib/__pycache__/cardcrop.cpython-39.pyc
+kukalib/__pycache__/cardcrop.cpython-39.pyc

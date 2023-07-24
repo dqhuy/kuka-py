@@ -637,7 +637,7 @@ def cropDocument(src):
 
     #Method 1: using biggest contour
     gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY) # CONVERT IMAGE TO GRAY SCALE
-    blurImg = cv2.GaussianBlur(gray, (5, 5), 1) # ADD GAUSSIAN BLUR
+    blurImg = cv2.GaussianBlur(gray, (7, 7), 0) # ADD GAUSSIAN BLUR
 
     edgeImg = cv2.Canny(blurImg,40,200) # APPLY CANNY BLUR
     kernel = np.ones((7, 7))
