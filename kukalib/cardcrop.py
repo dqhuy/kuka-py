@@ -611,10 +611,13 @@ def cropDocument(src):
         try to detect 4 edge then crop and rectify document
         algorithm: try to using biggest contour t if not then using hough to find 4 longest edges
     """
+    src_small =src.copy()
+
 
     #varible for return of function
-    lineImg = np.zeros(src.shape,dtype=np.uint8)
+    lineImg = np.zeros(src_small.shape,dtype=np.uint8)
     cropedImg = np.zeros(src.shape,dtype=np.uint8)
+
     hasCropped=False
 
     topleftPoint=[]
@@ -635,8 +638,22 @@ def cropDocument(src):
     minLineLength =int(0.1*min(img_width,img_height))
     maxLineGap = int(0.01*max(img_width,img_height))
 
+# try to scale down for faster process
+    widthResize=1280;
+    ratio=1
+    if(img_width>widthResize):
+        
+        if(img_width>img_height):
+            ratio=widthResize/img_width
+        else:
+            ratio=widthResize/img_height
+        #recalculate wh
+        img_width = int(img_width * ratio)
+        img_height = int(img_height * ratio)
+        src_small=cv2.resize(src,(img_width,img_height),interpolation=cv2.INTER_LINEAR)
+
     #Method 1: using biggest contour
-    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY) # CONVERT IMAGE TO GRAY SCALE
+    gray = cv2.cvtColor(src_small, cv2.COLOR_BGR2GRAY) # CONVERT IMAGE TO GRAY SCALE
     blurImg = cv2.GaussianBlur(gray, (7, 7), 0) # ADD GAUSSIAN BLUR
 
     edgeImg = cv2.Canny(blurImg,40,200) # APPLY CANNY BLUR
@@ -653,6 +670,8 @@ def cropDocument(src):
         biggest_order = order_points(biggest)
         x_b,y_b,w_b,h_b = cv2.boundingRect(np.array(biggest_order).reshape(4,1,2))
         if(w_b*h_b >= 0.33*(img_height*img_width)):
+            biggest_order = np.array(biggest_order) / ratio
+            biggest_order = np.ceil(biggest_order).astype(int)
             topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint = biggest_order
             topLine = np.array([topleftPoint,toprightPoint]).reshape(4)
             bottomLine = np.array([bottomleftPoint,bottomrightPoint]).reshape(4)
@@ -667,7 +686,7 @@ def cropDocument(src):
     # Method 2: using longest edge
     #step1: remove text and convert to gray
     kernel=np.ones((7,7),np.uint8)
-    dilectImg=cv2.morphologyEx(src,cv2.MORPH_CLOSE,kernel,iterations=5)
+    dilectImg=cv2.morphologyEx(src_small,cv2.MORPH_CLOSE,kernel,iterations=5)
 
     gray=cv2.cvtColor(dilectImg,cv2.COLOR_BGR2GRAY)
         
@@ -718,13 +737,22 @@ def cropDocument(src):
             mergedRightLineList = mergingLines(rightLineListRhoTheta,rho_threshold,theta_threshold,max_gap_y,axis=1)
 
             #try to find 4 edges
-            topLine,bottomLine,leftLine,rightLine = getQuadrangleByLength(mergedTopLineList,mergedBottomLineList,mergedLeftLineList,mergedRightLineList,src)
+            topLine,bottomLine,leftLine,rightLine = getQuadrangleByLength(mergedTopLineList,mergedBottomLineList,mergedLeftLineList,mergedRightLineList,src_small)
 
             #crop image if found  4 edge
             if(len(topLine)>0 and len(bottomLine)>0 and len(leftLine)>0 and len(rightLine)>0):
+                topLine=np.ceil(topLine/ratio).astype(int)
+                bottomLine =np.ceil(bottomLine/ratio).astype(int)
+                leftLine = np.ceil(leftLine/ratio).astype(int)
+                rightLine= np.ceil(rightLine/ratio).astype(int)
                 cropedImg,lineImg,(topleftPoint,toprightPoint,bottomrightPoint,bottomleftPoint) = cropImage(src,topLine[0:4],bottomLine[0:4],leftLine[0:4],rightLine[0:4])
                 hasCropped=True
                 #draw mergedLine
+                mergedTopLineList = np.ceil(mergedTopLineList/ratio).astype(int)
+                mergedBottomLineList = np.ceil(mergedBottomLineList/ratio).astype(int)
+                mergedLeftLineList =np.ceil(mergedLeftLineList/ratio).astype(int)
+                mergedRightLineList =np.ceil(mergedRightLineList/ratio).astype(int)
+
                 drawLinePoint(lineImg,mergedTopLineList,(255,0,0),2)
                 drawLinePoint(lineImg,mergedBottomLineList,(255,0,0),2)
                 drawLinePoint(lineImg,mergedLeftLineList,(255,0,0),2)
