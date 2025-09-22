@@ -136,10 +136,61 @@ def process_document3(input_path, output_path):
     # cv2.imshow('Ket qua cuoi cung', cv2.resize(final_image, (600, 800)))
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
+def process_document4(input_path, output_path):
+    """
+    Tải ảnh, xử lý và lưu kết quả.
+    """
+    # Đọc ảnh đầu vào
+    image = cv2.imread(input_path)
+    if image is None:
+        print(f"Lỗi: Không thể đọc ảnh từ đường dẫn {input_path}")
+        return
+
+    # Chuyển đổi sang không gian màu HSV để xử lý màu nền
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    # Định nghĩa dải màu đỏ
+    # OpenCV sử dụng dải màu 0-179, nên màu đỏ nằm ở hai đầu
+    lower_red1 = np.array([0, 50, 50])
+    upper_red1 = np.array([10, 255, 255])
+    lower_red2 = np.array([160, 50, 50])
+    upper_red2 = np.array([179, 255, 255])
+
+    # Tạo mask để phát hiện màu đỏ
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    red_mask = cv2.bitwise_or(mask1, mask2)
+    
+    # Đảo ngược mask để giữ lại các phần không phải màu đỏ (văn bản)
+    non_red_mask = cv2.bitwise_not(red_mask)
+    
+    # Chuyển đổi ảnh gốc sang thang độ xám để xử lý
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Áp dụng làm sắc nét (Unsharp Masking)
+    gaussian = cv2.GaussianBlur(gray_image, (0, 0), 3.0)
+    sharpened_image = cv2.addWeighted(gray_image, 1.5, gaussian, -0.5, 0)
+    
+    # Tạo một ảnh nền trắng
+    final_image = np.ones_like(sharpened_image) * 255
+    
+    # Sao chép các pixel từ ảnh đã làm sắc nét vào ảnh nền trắng, chỉ ở các vùng không phải màu đỏ
+    cv2.copyTo(sharpened_image, non_red_mask, final_image)
+    
+    # Lưu ảnh đầu ra
+    cv2.imwrite(output_path, final_image)
+    
+    print(f"Hoàn thành xử lý ảnh. Ảnh đầu ra đã được lưu tại {output_path}")
+
+    # Hiển thị ảnh gốc và ảnh kết quả
+    # cv2.imshow('Anh Goc', cv2.resize(cv2.imread(input_path), (600, 800)))
+    # cv2.imshow('Ket qua cuoi cung', cv2.resize(final_image, (600, 800)))
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     # Đường dẫn tới thư mục chứa ảnh
-    input_folder = "D:\\CSDL_SOHOA\\so-do\\30901-GCN-K 424143_images"
+    input_folder = "D:\\CSDL_SOHOA\\so-do\\30775-GCN-41-79_images"
     
     # Lấy toàn bộ các file ảnh trong thư mục
     # glob.glob hỗ trợ tìm kiếm file với wildcard
@@ -166,4 +217,6 @@ if __name__ == '__main__':
         elif processCase == 2:
             process_document2(file_path, output_path)
         elif processCase == 3:
-            process_document2(file_path, output_path)
+            process_document3(file_path, output_path)
+        elif processCase == 4:
+            process_document4(file_path, output_path)
