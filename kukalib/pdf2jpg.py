@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class PDFToJPGConverter:
-    def __init__(self, dpi: int = 300, output_quality: int = 95):
+    def __init__(self, dpi: int = 150, output_quality: int = 95):
         """
         Khởi tạo converter PDF to JPG
         
@@ -150,7 +150,7 @@ def main():
     parser = argparse.ArgumentParser(description='Chuyển đổi PDF thành JPG')
     parser.add_argument('input', help='Đường dẫn file PDF hoặc thư mục chứa PDF')
     parser.add_argument('-o', '--output', help='Thư mục đầu ra (optional)')
-    parser.add_argument('-d', '--dpi', type=int, default=300, help='Độ phân giải đầu ra (default: 300)')
+    parser.add_argument('-d', '--dpi', type=int, default=150, help='Độ phân giải đầu ra (default: 150)')
     parser.add_argument('-q', '--quality', type=int, default=95, help='Chất lượng JPG (1-100, default: 95)')
     parser.add_argument('-r', '--recursive', action='store_true', help='Quét đệ quy thư mục con')
     
