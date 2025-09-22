@@ -2,3 +2,10 @@ numpy
 opencv-python
 matplotlib
 google-cloud-storage
+
+opencv-python 
+numpy 
+scikit-image 
+matplotlib
+
+pip install PyMuPDF Pillow

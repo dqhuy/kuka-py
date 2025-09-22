@@ -1,280 +1,362 @@
-# -*- coding: utf-8 -*-
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import ttk
-from PIL import Image, ImageTk
+from tkinter import ttk, filedialog
 import cv2
 import numpy as np
+from PIL import Image, ImageTk
 import os
 
-class ImageProcessorApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Ứng dụng xử lý ảnh")
-        self.root.geometry("1200x800")
-
-        self.original_image = None
-        self.processed_image = None
-        self.file_path = None
-        self.tk_image_original = None  # Giữ tham chiếu ảnh gốc để tránh bị thu hồi
-        self.tk_image_processed = None # Giữ tham chiếu ảnh đã xử lý
-
-        # Chia layout chính thành hai khung: khung điều khiển và khung hiển thị ảnh
-        self.control_frame = tk.Frame(root, width=300, bg="#e0e0e0", padx=10, pady=10)
-        self.control_frame.pack(side=tk.LEFT, fill=tk.Y)
-
-        self.image_frame = tk.Frame(root, bg="#f0f0f0")
-        self.image_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        # Tạo widget cho khung điều khiển
-        self.create_controls()
-
-        # Tạo hệ thống tab
-        self.notebook = ttk.Notebook(self.image_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-
-        self.original_tab = tk.Frame(self.notebook)
-        self.processed_tab = tk.Frame(self.notebook)
-
-        self.notebook.add(self.original_tab, text="Ảnh Gốc")
-        self.notebook.add(self.processed_tab, text="Ảnh đã xử lý")
-
-        # Tạo canvas để hiển thị ảnh gốc và ảnh đã xử lý
-        self.canvas_original = tk.Canvas(self.original_tab, bg="#ffffff")
-        self.canvas_original.pack(fill=tk.BOTH, expand=True)
-        self.canvas_original.bind("<Configure>", self.on_canvas_resize)
-
-        self.canvas_processed = tk.Canvas(self.processed_tab, bg="#ffffff")
-        self.canvas_processed.pack(fill=tk.BOTH, expand=True)
-        self.canvas_processed.bind("<Configure>", self.on_canvas_resize)
-
-    def create_controls(self):
-        """Tạo các nút và thanh trượt trong khung điều khiển."""
-        tk.Label(self.control_frame, text="Điều khiển xử lý ảnh", font=("Arial", 14, "bold"), bg="#e0e0e0").pack(pady=(0, 10))
-
-        # Hiển thị tên file ảnh
-        self.file_name_label = tk.Label(self.control_frame, text="Chưa có ảnh nào được chọn", bg="#e0e0e0", wraplength=280)
-        self.file_name_label.pack(pady=(0, 10), fill=tk.X)
-
-        # Nút Tải ảnh
-        load_button = tk.Button(self.control_frame, text="Tải ảnh", command=self.load_image, font=("Arial", 12))
-        load_button.pack(pady=5, fill=tk.X)
-        
-        # Nút Lưu ảnh
-        save_button = tk.Button(self.control_frame, text="Lưu ảnh", command=self.save_image, font=("Arial", 12))
-        save_button.pack(pady=5, fill=tk.X)
-
-        # --- CÁC THANH TRƯỢT ĐIỀU CHỈNH THÔNG SỐ ---
-        
-        # Bước 1: CLAHE (Tăng cường độ tương phản)
-        self.clahe_label = tk.Label(self.control_frame, text="1. Tăng cường tương phản (CLAHE)", font=("Arial", 12), bg="#e0e0e0")
-        self.clahe_label.pack(anchor="w", pady=(10, 0))
-        
-        tk.Label(self.control_frame, text="Clip Limit:", bg="#e0e0e0").pack(anchor="w")
-        self.clahe_clip_limit = tk.Scale(self.control_frame, from_=1.0, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.clahe_clip_limit.set(3.0)
-        self.clahe_clip_limit.pack(fill=tk.X)
-        
-        tk.Label(self.control_frame, text="Kích thước ô lưới (Grid Size):", bg="#e0e0e0").pack(anchor="w")
-        self.clahe_grid_size = tk.Scale(self.control_frame, from_=1, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.clahe_grid_size.set(100)
-        self.clahe_grid_size.pack(fill=tk.X)
-
-        # Bước 2: Sharpening (Làm sắc nét)
-        tk.Label(self.control_frame, text="2. Làm sắc nét chữ viết", font=("Arial", 12), bg="#e0e0e0").pack(anchor="w", pady=(10, 0))
-        
-        tk.Label(self.control_frame, text="Độ sắc nét:", bg="#e0e0e0").pack(anchor="w")
-        self.sharpen_amount = tk.Scale(self.control_frame, from_=0.0, to=2.0, resolution=0.1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.sharpen_amount.set(0.5)
-        self.sharpen_amount.pack(fill=tk.X)
-
-        # Bước 3: Smoothing (Làm mịn)
-        tk.Label(self.control_frame, text="3. Làm mịn ảnh", font=("Arial", 12), bg="#e0e0e0").pack(anchor="w", pady=(10, 0))
-        
-        self.smooth_type = tk.StringVar(value="Gaussian")
-        tk.Radiobutton(self.control_frame, text="Gaussian Blur", variable=self.smooth_type, value="Gaussian", command=self.update_smooth_controls, bg="#e0e0e0").pack(anchor="w")
-        tk.Radiobutton(self.control_frame, text="Bilateral Filter", variable=self.smooth_type, value="Bilateral", command=self.update_smooth_controls, bg="#e0e0e0").pack(anchor="w")
-        
-        # Gaussian Blur Controls
-        self.gaussian_frame = tk.Frame(self.control_frame, bg="#e0e0e0")
-        self.gaussian_frame.pack(fill=tk.X)
-        tk.Label(self.gaussian_frame, text="Kích thước kernel:", bg="#e0e0e0").pack(anchor="w")
-        self.gaussian_size = tk.Scale(self.gaussian_frame, from_=1, to=31, resolution=2, orient=tk.HORIZONTAL, command=self.update_image)
-        self.gaussian_size.set(3)
-        self.gaussian_size.pack(fill=tk.X)
-        
-        # Bilateral Filter Controls
-        self.bilateral_frame = tk.Frame(self.control_frame, bg="#e0e0e0")
-        
-        tk.Label(self.bilateral_frame, text="Kích thước kernel (d):", bg="#e0e0e0").pack(anchor="w")
-        self.bilateral_d = tk.Scale(self.bilateral_frame, from_=1, to=20, resolution=1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.bilateral_d.set(9)
-        self.bilateral_d.pack(fill=tk.X)
-        
-        tk.Label(self.bilateral_frame, text="Sigma Color:", bg="#e0e0e0").pack(anchor="w")
-        self.bilateral_sigma_color = tk.Scale(self.bilateral_frame, from_=1, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.bilateral_sigma_color.set(75)
-        self.bilateral_sigma_color.pack(fill=tk.X)
-        
-        tk.Label(self.bilateral_frame, text="Sigma Space:", bg="#e0e0e0").pack(anchor="w")
-        self.bilateral_sigma_space = tk.Scale(self.bilateral_frame, from_=1, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.update_image)
-        self.bilateral_sigma_space.set(75)
-        self.bilateral_sigma_space.pack(fill=tk.X)
-        
-        self.update_smooth_controls()
-
-    def update_smooth_controls(self):
-        """Ẩn/hiện các thanh trượt làm mịn tùy thuộc vào lựa chọn của người dùng."""
-        if self.smooth_type.get() == "Gaussian":
-            self.gaussian_frame.pack(fill=tk.X)
-            self.bilateral_frame.pack_forget()
-        else:
-            self.gaussian_frame.pack_forget()
-            self.bilateral_frame.pack(fill=tk.X)
-        
-        self.update_image()
-
-    def load_image(self):
-        """Tải ảnh từ hệ thống tệp và hiển thị."""
-        filepath = filedialog.askopenfilename(
-            filetypes=[("Image files", "*.jpg;*.jpeg;*.png;*.bmp")]
-        )
-        if not filepath:
-            return
-
-        # Lưu đường dẫn và tên file
-        self.file_path = filepath
-        self.file_name_label.config(text=f"Tên file: {os.path.basename(filepath)}")
-
-        # Đọc ảnh bằng OpenCV và chuyển đổi sang không gian màu RGB
-        self.original_image = cv2.imread(filepath)
-        if self.original_image is None:
-            tk.messagebox.showerror("Lỗi", "Không thể tải ảnh. Vui lòng thử lại.")
-            return
-
-        # Chuyển đổi BGR sang RGB để hiển thị đúng
-        self.original_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2RGB)
-        
-        # Hiển thị ảnh gốc
-        self.display_image(self.original_image, self.canvas_original, "original")
-        
-        # Bắt đầu xử lý ảnh
-        self.update_image()
-
-    def save_image(self):
-        """Lưu ảnh đã xử lý vào hệ thống tệp."""
-        if self.processed_image is None:
-            tk.messagebox.showwarning("Cảnh báo", "Không có ảnh nào đã xử lý để lưu.")
-            return
-
-        if self.file_path:
-            # Tạo tên file mới
-            directory, file_name = os.path.split(self.file_path)
-            base_name, ext = os.path.splitext(file_name)
-            new_file_name = f"processed_{base_name}{ext}"
-            new_file_path = os.path.join(directory, new_file_name)
-            
-            # Chuyển ảnh từ RGB sang BGR để lưu bằng OpenCV
-            processed_bgr = cv2.cvtColor(self.processed_image, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(new_file_path, processed_bgr)
-            tk.messagebox.showinfo("Thông báo", f"Ảnh đã được lưu thành công tại:\n{new_file_path}")
-        else:
-            tk.messagebox.showwarning("Cảnh báo", "Vui lòng tải ảnh lên trước khi lưu.")
-
-    def update_image(self, event=None):
-        """
-        Áp dụng toàn bộ pipeline xử lý ảnh và cập nhật hình ảnh hiển thị.
-        Hàm này được gọi mỗi khi có thanh trượt nào đó thay đổi.
-        """
-        if self.original_image is None:
-            return
-
-        current_image = self.original_image.copy()
-        
-        # Bước 1: CLAHE (Tăng cường độ tương phản)
-        lab_image = cv2.cvtColor(current_image, cv2.COLOR_RGB2LAB)
-        l, a, b = cv2.split(lab_image)
-        clahe = cv2.createCLAHE(
-            clipLimit=self.clahe_clip_limit.get(),
-            tileGridSize=(self.clahe_grid_size.get(), self.clahe_grid_size.get())
-        )
-        l_clahe = clahe.apply(l)
-        limg = cv2.merge((l_clahe, a, b))
-        current_image = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
-        
-        # Chuyển đổi sang ảnh xám để làm sắc nét
-        gray_image = cv2.cvtColor(current_image, cv2.COLOR_RGB2GRAY)
-
-        # Bước 2: Sharpening (Làm sắc nét chữ viết)
-        gaussian_blur = cv2.GaussianBlur(gray_image, (0, 0), 3.0)
-        sharpened_image = cv2.addWeighted(gray_image, 2, gaussian_blur, -self.sharpen_amount.get(),  0)
-
-        # Bước 3: Smoothing (Làm mịn ảnh)
-        if self.smooth_type.get() == "Gaussian":
-            k_size = int(self.gaussian_size.get())
-            if k_size % 2 == 0: k_size += 1
-            if k_size > 1:
-                denoised_image = cv2.GaussianBlur(sharpened_image, (k_size, k_size), 0)
-            else:
-                denoised_image = sharpened_image
-        else: # Bilateral Filter
-            d = int(self.bilateral_d.get())
-            sigma_color = int(self.bilateral_sigma_color.get())
-            sigma_space = int(self.bilateral_sigma_space.get())
-            # Bilateral filter hoạt động tốt hơn trên ảnh màu
-            sharpened_color = cv2.cvtColor(sharpened_image, cv2.COLOR_GRAY2RGB)
-            denoised_image = cv2.bilateralFilter(sharpened_color, d, sigma_color, sigma_space)
-            
-        # Cập nhật ảnh đã xử lý
-        if len(denoised_image.shape) == 2:
-             denoised_image = cv2.cvtColor(denoised_image, cv2.COLOR_GRAY2RGB)
-             
-        self.processed_image = denoised_image
-        self.display_image(self.processed_image, self.canvas_processed, "processed")
+# --- Các hàm tự động hóa ---
+def auto_clahe_params(image):
+    """
+    Tự động xác định tham số cho CLAHE.
+    """
+    # Chuyển đổi sang không gian màu LAB và trích xuất kênh L
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l_channel = lab[:, :, 0]
     
-    def on_canvas_resize(self, event):
-        """Hàm này được gọi khi kích thước canvas thay đổi."""
-        if self.original_image is not None:
-            self.display_image(self.original_image, self.canvas_original, "original")
-        if self.processed_image is not None:
-            self.display_image(self.processed_image, self.canvas_processed, "processed")
+    # Tính toán độ lệch chuẩn của kênh L để đánh giá độ tương phản
+    std_dev = np.std(l_channel)
 
-    def display_image(self, img_data, canvas, img_type):
-        """Hiển thị ảnh trên canvas, tự động điều chỉnh kích thước."""
-        if img_data is None:
+    # Dựa trên độ lệch chuẩn, xác định clipLimit
+    if std_dev < 50:
+        clip_limit = 3.0
+    elif std_dev < 75:
+        clip_limit = 2.0
+    else:
+        clip_limit = 1.0
+    
+    # Dựa trên mật độ cạnh, xác định tileGridSize
+    edges = cv2.Canny(l_channel, 100, 200)
+    edge_density = np.sum(edges) / (edges.shape[0] * edges.shape[1])
+    
+    if edge_density > 0.1:
+        tile_size = 8
+    else:
+        tile_size = 16
+        
+    return clip_limit, tile_size
+
+def auto_sharpen_params(gray_image):
+    """
+    Tự động xác định tham số làm sắc nét dựa trên phân tích độ mờ của ảnh.
+    """
+    # Tính toán Laplacian của ảnh
+    laplacian = cv2.Laplacian(gray_image, cv2.CV_64F)
+    
+    # Tính phương sai của Laplacian để đánh giá độ mờ
+    laplacian_variance = laplacian.var()
+    
+    # Đặt ngưỡng để xác định mức độ mờ
+    blur_threshold = 100 
+    
+    # Xác định alpha và beta dựa trên phương sai
+    if laplacian_variance < blur_threshold:
+        alpha = 2.0
+    else:
+        alpha = 1.2
+        
+    beta = 1.0 - alpha
+    
+    return alpha, beta
+
+def auto_bilateral_params(gray_image):
+    """
+    Tự động xác định tham số cho Bilateral Filter dựa trên phân tích ảnh.
+    """
+    # Tính toán Laplacian của ảnh để đánh giá độ nhiễu
+    laplacian = cv2.Laplacian(gray_image, cv2.CV_64F)
+    
+    # Phương sai của Laplacian là thước đo mức độ nhiễu và chi tiết
+    laplacian_variance = laplacian.var()
+    
+    # Đặt ngưỡng để phân loại ảnh
+    noise_threshold = 100 
+    d = 9
+
+    if laplacian_variance > noise_threshold:
+        sigma_color = 100
+        sigma_space = 100
+    else:
+        sigma_color = 50
+        sigma_space = 50
+        
+    return d, sigma_color, sigma_space
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Ứng dụng xử lý ảnh")
+        self.geometry("1400x800")
+        
+        self.image = None
+        self.processed_image = None
+        self.image_path = None
+        
+        # Tạo khung chính
+        self.main_frame = ttk.Frame(self, padding="10")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Khung điều khiển bên trái
+        self.control_frame = ttk.LabelFrame(self.main_frame, text="Điều khiển", padding="10")
+        self.control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+
+        # Khung hiển thị ảnh
+        self.display_frame = ttk.Frame(self.main_frame)
+        self.display_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Khung hiển thị Histogram
+        self.histogram_frame = ttk.LabelFrame(self.main_frame, text="Biểu đồ Histogram", padding="10")
+        self.histogram_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
+
+        self.file_name_label = ttk.Label(self.control_frame, text="Tên file: Chưa chọn")
+        self.file_name_label.pack(pady=5)
+        
+        # Tạo các nút điều khiển
+        self.open_button = ttk.Button(self.control_frame, text="Chọn ảnh", command=self.open_image)
+        self.open_button.pack(pady=5)
+        
+        self.save_button = ttk.Button(self.control_frame, text="Lưu ảnh đã xử lý", command=self.save_image)
+        self.save_button.pack(pady=5)
+        
+        # Tạo các tab để hiển thị ảnh
+        self.tab_control = ttk.Notebook(self.display_frame)
+        self.tab_control.pack(fill=tk.BOTH, expand=True)
+
+        self.original_tab = ttk.Frame(self.tab_control)
+        self.processed_tab = ttk.Frame(self.tab_control)
+
+        self.tab_control.add(self.original_tab, text='Ảnh gốc')
+        self.tab_control.add(self.processed_tab, text='Ảnh đã xử lý')
+
+        self.original_canvas = tk.Canvas(self.original_tab, bg="white")
+        self.original_canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.processed_canvas = tk.Canvas(self.processed_tab, bg="white")
+        self.processed_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # --- Các thanh trượt cho CLAHE ---
+        clahe_frame = ttk.LabelFrame(self.control_frame, text="1. Tăng tương phản (CLAHE)", padding="10")
+        clahe_frame.pack(pady=10, fill=tk.X)
+
+        ttk.Label(clahe_frame, text="Clip Limit").pack(pady=5)
+        self.clahe_clip_limit_slider = ttk.Scale(clahe_frame, from_=0.0, to=10.0, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.clahe_clip_limit_slider.set(2.0)
+        self.clahe_clip_limit_slider.pack(fill=tk.X)
+        self.clahe_clip_limit_value_label = ttk.Label(clahe_frame, text="Giá trị: 2.0")
+        self.clahe_clip_limit_value_label.pack(pady=2)
+        
+        ttk.Label(clahe_frame, text="Tile Grid Size").pack(pady=5)
+        self.clahe_tile_grid_size_slider = ttk.Scale(clahe_frame, from_=2, to=32, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.clahe_tile_grid_size_slider.set(8)
+        self.clahe_tile_grid_size_slider.pack(fill=tk.X)
+        self.clahe_tile_grid_size_value_label = ttk.Label(clahe_frame, text="Giá trị: 8")
+        self.clahe_tile_grid_size_value_label.pack(pady=2)
+        
+        # --- Các thanh trượt cho làm sắc nét ---
+        sharpen_frame = ttk.LabelFrame(self.control_frame, text="2. Làm sắc nét chữ", padding="10")
+        sharpen_frame.pack(pady=10, fill=tk.X)
+        
+        ttk.Label(sharpen_frame, text="Trọng số Alpha").pack(pady=5)
+        self.sharpen_alpha_slider = ttk.Scale(sharpen_frame, from_=0.0, to=5.0, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.sharpen_alpha_slider.set(1.5)
+        self.sharpen_alpha_slider.pack(fill=tk.X)
+        self.sharpen_alpha_value_label = ttk.Label(sharpen_frame, text="Giá trị: 1.5")
+        self.sharpen_alpha_value_label.pack(pady=2)
+
+        ttk.Label(sharpen_frame, text="Trọng số Beta").pack(pady=5)
+        self.sharpen_beta_slider = ttk.Scale(sharpen_frame, from_=-5.0, to=0.0, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.sharpen_beta_slider.set(-0.5)
+        self.sharpen_beta_slider.pack(fill=tk.X)
+        self.sharpen_beta_value_label = ttk.Label(sharpen_frame, text="Giá trị: -0.5")
+        self.sharpen_beta_value_label.pack(pady=2)
+        
+        # --- Các thanh trượt cho làm mịn ---
+        smooth_frame = ttk.LabelFrame(self.control_frame, text="3. Làm mịn (Bilateral Filter)", padding="10")
+        smooth_frame.pack(pady=10, fill=tk.X)
+        
+        ttk.Label(smooth_frame, text="Sigma Color").pack(pady=5)
+        self.bilateral_sigma_color_slider = ttk.Scale(smooth_frame, from_=10, to=200, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.bilateral_sigma_color_slider.set(75)
+        self.bilateral_sigma_color_slider.pack(fill=tk.X)
+        self.bilateral_sigma_color_value_label = ttk.Label(smooth_frame, text="Giá trị: 75")
+        self.bilateral_sigma_color_value_label.pack(pady=2)
+        
+        ttk.Label(smooth_frame, text="Sigma Space").pack(pady=5)
+        self.bilateral_sigma_space_slider = ttk.Scale(smooth_frame, from_=10, to=200, orient=tk.HORIZONTAL, command=self.apply_filters)
+        self.bilateral_sigma_space_slider.set(75)
+        self.bilateral_sigma_space_slider.pack(fill=tk.X)
+        self.bilateral_sigma_space_value_label = ttk.Label(smooth_frame, text="Giá trị: 75")
+        self.bilateral_sigma_space_value_label.pack(pady=2)
+
+        # Canvas cho Histogram gốc
+        ttk.Label(self.histogram_frame, text="Ảnh gốc").pack(pady=5)
+        self.original_histogram_canvas = tk.Canvas(self.histogram_frame, bg="white", width=256, height=150)
+        self.original_histogram_canvas.pack(fill=tk.X)
+
+        # Canvas cho Histogram đã xử lý
+        ttk.Label(self.histogram_frame, text="Ảnh đã xử lý").pack(pady=5)
+        self.processed_histogram_canvas = tk.Canvas(self.histogram_frame, bg="white", width=256, height=150)
+        self.processed_histogram_canvas.pack(fill=tk.X)
+
+    def open_image(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image Files", "*.jpg *.png *.jpeg *.bmp")]
+        )
+        if file_path:
+            self.image_path = file_path
+            self.image = cv2.imread(self.image_path)
+            if self.image is not None:
+                self.file_name_label.config(text=f"Tên file: {os.path.basename(self.image_path)}")
+                
+                # Tính toán các tham số tự động
+                gray_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                clip_limit, tile_size = auto_clahe_params(self.image)
+                alpha, beta = auto_sharpen_params(gray_image)
+                d, sigma_c, sigma_s = auto_bilateral_params(gray_image)
+
+                # Cập nhật giá trị lên các thanh trượt và nhãn
+                self.clahe_clip_limit_slider.set(clip_limit)
+                self.clahe_clip_limit_value_label.config(text=f"Giá trị: {clip_limit:.2f}")
+
+                self.clahe_tile_grid_size_slider.set(tile_size)
+                self.clahe_tile_grid_size_value_label.config(text=f"Giá trị: {tile_size}")
+
+                self.sharpen_alpha_slider.set(alpha)
+                self.sharpen_alpha_value_label.config(text=f"Giá trị: {alpha:.2f}")
+
+                self.sharpen_beta_slider.set(beta)
+                self.sharpen_beta_value_label.config(text=f"Giá trị: {beta:.2f}")
+
+                self.bilateral_sigma_color_slider.set(sigma_c)
+                self.bilateral_sigma_color_value_label.config(text=f"Giá trị: {sigma_c}")
+
+                self.bilateral_sigma_space_slider.set(sigma_s)
+                self.bilateral_sigma_space_value_label.config(text=f"Giá trị: {sigma_s}")
+
+                # Hiển thị ảnh và histogram gốc
+                self.display_image(self.image, self.original_canvas)
+                self.display_histogram(self.image, self.original_histogram_canvas)
+                self.apply_filters()
+            else:
+                print("Lỗi: Không thể đọc file ảnh.")
+    
+    def apply_filters(self, event=None):
+        if self.image is None:
             return
 
-        canvas.delete("all")
+        # Lấy giá trị từ thanh trượt
+        clip_limit = self.clahe_clip_limit_slider.get()
+        tile_size = int(self.clahe_tile_grid_size_slider.get())
+        alpha = self.sharpen_alpha_slider.get()
+        beta = self.sharpen_beta_slider.get()
+        sigma_color = int(self.bilateral_sigma_color_slider.get())
+        sigma_space = int(self.bilateral_sigma_space_slider.get())
+        d = 9 # Kích thước kernel d được giữ cố định
+
+        # Cập nhật giá trị trên nhãn khi thanh trượt thay đổi
+        self.clahe_clip_limit_value_label.config(text=f"Giá trị: {clip_limit:.2f}")
+        self.clahe_tile_grid_size_value_label.config(text=f"Giá trị: {tile_size}")
+        self.sharpen_alpha_value_label.config(text=f"Giá trị: {alpha:.2f}")
+        self.sharpen_beta_value_label.config(text=f"Giá trị: {beta:.2f}")
+        self.bilateral_sigma_color_value_label.config(text=f"Giá trị: {sigma_color}")
+        self.bilateral_sigma_space_value_label.config(text=f"Giá trị: {sigma_space}")
+
+        # Chuyển đổi sang không gian màu LAB để xử lý ánh sáng và màu sắc riêng biệt
+        lab = cv2.cvtColor(self.image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # Áp dụng CLAHE cho kênh L
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_size, tile_size))
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+
+        # Chuyển đổi ngược lại không gian màu
+        enhanced_image = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+        
+        # Chuyển đổi không gian màu sang thang độ xám
+        gray_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2GRAY)
+        
+        # Áp dụng làm sắc nét (Unsharp Masking)
+        gaussian = cv2.GaussianBlur(gray_image, (0, 0), 3.0)
+        sharpened_image = cv2.addWeighted(gray_image, alpha, gaussian, beta, 0)
+        
+        # Áp dụng bộ lọc làm mịn
+        denoised_image = cv2.bilateralFilter(sharpened_image, d, sigma_color, sigma_space)
+        
+        self.processed_image = denoised_image
+        
+        # Hiển thị ảnh và histogram đã xử lý
+        self.display_image(self.processed_image, self.processed_canvas)
+        self.display_histogram(self.processed_image, self.processed_histogram_canvas)
+
+    def display_image(self, image, canvas):
+        # Lấy kích thước canvas và đảm bảo chúng hợp lệ
         canvas_width = canvas.winfo_width()
         canvas_height = canvas.winfo_height()
 
-        h, w = img_data.shape[:2]
-        ratio = min(canvas_width / w, canvas_height / h)
-        new_w = int(w * ratio)
-        new_h = int(h * ratio)
-
-        pil_image = Image.fromarray(img_data)
-        pil_image = pil_image.resize((new_w, new_h), Image.LANCZOS)
+        if canvas_width <= 20 or canvas_height <= 20:
+            self.after(100, lambda: self.display_image(image, canvas))
+            return
+            
+        # Chuyển đổi ảnh OpenCV sang định dạng Tkinter
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(image_rgb)
         
-        # Cập nhật tham chiếu ảnh
-        if img_type == "original":
-            self.tk_image_original = ImageTk.PhotoImage(pil_image)
-            canvas.create_image(
-                canvas_width / 2,
-                canvas_height / 2,
-                image=self.tk_image_original,
-                anchor=tk.CENTER
+        # Giảm kích thước ảnh để hiển thị vừa khung canvas
+        max_width = canvas_width - 20
+        max_height = canvas_height - 20
+        pil_image.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+        
+        tk_image = ImageTk.PhotoImage(pil_image)
+        
+        # Cập nhật canvas
+        canvas.delete("all")
+        canvas.config(width=pil_image.width, height=pil_image.height)
+        canvas.create_image(0, 0, anchor=tk.NW, image=tk_image)
+        canvas.image = tk_image
+        
+    def display_histogram(self, image, canvas):
+        # Biểu đồ Histogram
+        # Đảm bảo ảnh là ảnh grayscale
+        if len(image.shape) > 2:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        hist = cv2.calcHist([image], [0], None, [256], [0, 256])
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+        
+        if canvas_width <= 0 or canvas_height <= 0:
+            return
+
+        cv2.normalize(hist, hist, 0, canvas_height, cv2.NORM_MINMAX)
+        
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, canvas_width, canvas_height, fill="white", outline="gray")
+        
+        bin_width = canvas_width / 256
+        
+        for i in range(256):
+            canvas.create_line(
+                i,
+                canvas_height,
+                i,
+                canvas_height - hist[i][0],
+                fill="black"
             )
-        else:
-            self.tk_image_processed = ImageTk.PhotoImage(pil_image)
-            canvas.create_image(
-                canvas_width / 2,
-                canvas_height / 2,
-                image=self.tk_image_processed,
-                anchor=tk.CENTER
-            )
+
+    def save_image(self):
+        if self.processed_image is not None and self.image_path:
+            original_dir, original_file = os.path.split(self.image_path)
+            file_name, file_ext = os.path.splitext(original_file)
+            new_file_name = f"processed_{file_name}{file_ext}"
+            save_path = os.path.join(original_dir, new_file_name)
+            
+            # Lưu ảnh đã xử lý
+            cv2.imwrite(save_path, self.processed_image)
+            msg =f"Ảnh đã được lưu tại: {save_path}"
+            print(msg)
+            tk.messagebox.showinfo("Lưu ảnh", msg)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageProcessorApp(root)
-    root.mainloop()
+    app = App()
+    app.mainloop()
