@@ -12,27 +12,59 @@ from typing import Tuple, Optional
 MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-MODEL_PATH = os.path.join(MODEL_DIR, 'u2netp.onnx')
-MODEL_URL = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx'
+# Available models
+MODELS = {
+    'u2net': {
+        'path': os.path.join(MODEL_DIR, 'u2net.onnx'),
+        'url': 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx',
+        'size_mb': 176,
+        'description': 'Full U2-Net model (best accuracy)'
+    },
+    'u2netp': {
+        'path': os.path.join(MODEL_DIR, 'u2netp.onnx'),
+        'url': 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx',
+        'size_mb': 4.4,
+        'description': 'Lightweight U2NETP model (faster)'
+    }
+}
 
-def download_model(debug=False):
-    """Download U2-Net model if not exists"""
-    if os.path.exists(MODEL_PATH):
+# Default model
+DEFAULT_MODEL = 'u2net'  # Use full model as default
+
+def download_model(model_name='u2net', debug=False):
+    """Download U2-Net model if not exists
+    
+    Parameters:
+    -----------
+    model_name : str
+        'u2net' for full model (176MB, default) or 'u2netp' for lightweight (4.4MB)
+    debug : bool
+        Print debug information
+    """
+    if model_name not in MODELS:
         if debug:
-            print(f"U2-Net model already exists at: {MODEL_PATH}")
+            print(f"❌ Unknown model: {model_name}. Available: {list(MODELS.keys())}")
+        return False
+    
+    model_info = MODELS[model_name]
+    model_path = model_info['path']
+    
+    if os.path.exists(model_path):
+        if debug:
+            print(f"✅ {model_name} model already exists at: {model_path}")
         return True
     
     try:
         import urllib.request
         if debug:
-            print(f"Downloading U2-Net model to: {MODEL_PATH}")
+            print(f"Downloading {model_name} model ({model_info['size_mb']}MB) to: {model_path}")
             print(f"This may take a few minutes...")
         
-        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+        urllib.request.urlretrieve(model_info['url'], model_path)
         
         if debug:
             print(f"✅ Model downloaded successfully!")
-            print(f"Model size: {os.path.getsize(MODEL_PATH) / 1024 / 1024:.2f} MB")
+            print(f"Model size: {os.path.getsize(model_path) / 1024 / 1024:.2f} MB")
         
         return True
     except Exception as e:
@@ -41,25 +73,41 @@ def download_model(debug=False):
         return False
 
 
-def load_u2net_model(debug=False):
-    """Load U2-Net model using ONNX runtime for better compatibility"""
+def load_u2net_model(model_name='u2net', debug=False):
+    """Load U2-Net model using ONNX runtime for better compatibility
+    
+    Parameters:
+    -----------
+    model_name : str
+        'u2net' for full model (176MB, default) or 'u2netp' for lightweight (4.4MB)
+    debug : bool
+        Print debug information
+    """
     try:
         import onnxruntime as ort
         
-        if not os.path.exists(MODEL_PATH):
+        if model_name not in MODELS:
             if debug:
-                print("Model not found, attempting download...")
-            if not download_model(debug):
+                print(f"❌ Unknown model: {model_name}")
+            return None
+        
+        model_path = MODELS[model_name]['path']
+        
+        if not os.path.exists(model_path):
+            if debug:
+                print(f"{model_name} model not found, attempting download...")
+            if not download_model(model_name, debug):
                 return None
         
         if debug:
-            print(f"Loading U2-Net model from: {MODEL_PATH}")
+            print(f"Loading {model_name} model from: {model_path}")
+            print(f"Model: {MODELS[model_name]['description']}")
         
         # Create ONNX runtime session
-        session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
+        session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
         
         if debug:
-            print("✅ U2-Net model loaded successfully")
+            print(f"✅ {model_name} model loaded successfully")
             input_name = session.get_inputs()[0].name
             input_shape = session.get_inputs()[0].shape
             print(f"Input name: {input_name}, shape: {input_shape}")
@@ -129,15 +177,25 @@ def postprocess_mask(mask: np.ndarray, original_shape: Tuple[int, int], debug=Fa
     return mask_resized
 
 
-def run_u2net_inference(image: np.ndarray, debug=False) -> Optional[np.ndarray]:
-    """Run U2-Net inference on image"""
+def run_u2net_inference(image: np.ndarray, model_name='u2net', debug=False) -> Optional[np.ndarray]:
+    """Run U2-Net inference on image
+    
+    Parameters:
+    -----------
+    image : np.ndarray
+        Input image
+    model_name : str
+        'u2net' for full model (default) or 'u2netp' for lightweight
+    debug : bool
+        Print debug information
+    """
     if debug:
         print("="*60)
-        print("U2-Net Inference Starting")
+        print(f"U2-Net Inference Starting (model: {model_name})")
         print("="*60)
     
     # Load model
-    session = load_u2net_model(debug=debug)
+    session = load_u2net_model(model_name=model_name, debug=debug)
     if session is None:
         if debug:
             print("❌ Failed to load U2-Net model")
@@ -176,20 +234,33 @@ def run_u2net_inference(image: np.ndarray, debug=False) -> Optional[np.ndarray]:
         return None
 
 
-def test_u2net(debug=True):
-    """Test U2-Net model availability and basic functionality"""
+def test_u2net(model_name='u2net', debug=True):
+    """Test U2-Net model availability and basic functionality
+    
+    Parameters:
+    -----------
+    model_name : str
+        'u2net' or 'u2netp'
+    """
     print("\n" + "="*60)
-    print("U2-Net Model Test")
+    print(f"U2-Net Model Test ({model_name})")
     print("="*60)
     
+    if model_name not in MODELS:
+        print(f"❌ Unknown model: {model_name}")
+        return False
+    
+    model_path = MODELS[model_name]['path']
+    
     # Check if model exists
-    if os.path.exists(MODEL_PATH):
-        print(f"✅ Model file exists: {MODEL_PATH}")
-        print(f"   Size: {os.path.getsize(MODEL_PATH) / 1024 / 1024:.2f} MB")
+    if os.path.exists(model_path):
+        print(f"✅ Model file exists: {model_path}")
+        print(f"   Size: {os.path.getsize(model_path) / 1024 / 1024:.2f} MB")
+        print(f"   {MODELS[model_name]['description']}")
     else:
-        print(f"❌ Model file not found: {MODEL_PATH}")
-        print("   Attempting to download...")
-        if download_model(debug=True):
+        print(f"❌ Model file not found: {model_path}")
+        print(f"   Attempting to download ({MODELS[model_name]['size_mb']}MB)...")
+        if download_model(model_name, debug=True):
             print("✅ Model downloaded successfully")
         else:
             print("❌ Model download failed")
@@ -205,16 +276,18 @@ def test_u2net(debug=True):
         return False
     
     # Try to load model
-    session = load_u2net_model(debug=True)
+    session = load_u2net_model(model_name=model_name, debug=True)
     if session is None:
         print("❌ Failed to load model")
         return False
     
-    print("✅ U2-Net model ready for use!")
+    print(f"✅ {model_name} model ready for use!")
     print("="*60 + "\n")
     return True
 
 
 if __name__ == "__main__":
-    # Run test
-    test_u2net()
+    # Run test for default model
+    import sys
+    model = sys.argv[1] if len(sys.argv) > 1 else 'u2net'
+    test_u2net(model)
