@@ -25,13 +25,15 @@ def main_loop():
     - Hỗ trợ cả file PDF (tự động xử lý từng trang)
     
     **Phương pháp:**
-    - **Auto**: Tự động chọn phương pháp tốt nhất (ưu tiên Content-Based)
-    - **Content**: Content-based detection (TỐT NHẤT cho tài liệu thực tế)
-    - **U2-Net**: AI-based background removal (chính xác cao, cần torch + rembg)
-    - **DeepLabV3**: Semantic segmentation CNN (robust, cần torch)
-    - **EdgeLinking**: Edge-based CNN (tốt cho document có edge rõ)
+    - **Auto**: Tự động chọn phương pháp tốt nhất (ưu tiên U2-Net)
+    - **U2-Net**: AI-based detection (KHUYẾN NGHỊ - chính xác nhất, model 4.4MB)
+    - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
+    - **DeepLabV3**: Semantic segmentation CNN (cần cài thêm torch)
+    - **EdgeLinking**: Edge-based detection (tốt cho document có edge rõ)
     - **Morphology**: Advanced morphological operations (tốt cho high-contrast)
     - **OpenCV**: Traditional method (nhanh nhất, background đơn giản)
+    
+    **Lưu ý**: U2-Net sẽ tự động tải model (4.4MB) vào thư mục kukalib/models/ lần đầu sử dụng.
     """)
     
     # Method selection and debug option
@@ -39,9 +41,9 @@ def main_loop():
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp phát hiện:",
-            ["auto", "content", "u2net", "deeplabv3", "edgelinking", "morphology", "opencv"],
+            ["auto", "u2net", "content", "deeplabv3", "edgelinking", "morphology", "opencv"],
             index=0,
-            help="Auto: Tự động thử các phương pháp theo thứ tự ưu tiên. Content: Tìm vùng có nội dung text (tốt nhất cho tài liệu thực tế)."
+            help="Auto: Ưu tiên U2-Net (chính xác nhất). U2-Net: AI detection với model ONNX 4.4MB."
         )
     with col_debug:
         show_debug = st.checkbox(

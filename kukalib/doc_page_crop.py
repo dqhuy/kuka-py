@@ -826,20 +826,20 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
         cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
         method_used = "content" if success else "content_failed"
     else:  # method == 'auto'
-        # Priority order: Content-based first (best for real documents), then AI models
-        # Try methods in order of expected performance for real-world documents
+        # Priority order: U2-Net first (requested by user), then fallback methods
+        # U2-Net provides best accuracy for real-world documents
         
-        # 1. Try Content-Based (best for real scanned documents with margins)
-        cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
+        # 1. Try U2-Net (BEST - AI-based, works with complex backgrounds)
+        cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
         if success:
-            method_used = "content"
+            method_used = "u2net"
         else:
-            # 2. Try U2-Net (best for complex backgrounds)
+            # 2. Try Content-Based (good for documents with clear margins)
             if debug:
-                print("Auto: Trying U2-Net method", file=sys.stderr)
-            cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
+                print("Auto: U2-Net failed, trying Content-Based method", file=sys.stderr)
+            cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
             if success:
-                method_used = "u2net"
+                method_used = "content"
             else:
                 # 3. Try Morphology-based (good for high-contrast docs)
                 if debug:
@@ -855,7 +855,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
                     if success:
                         method_used = "edgelinking"
                     else:
-                        # 5. Try DeepLabV3 (powerful but slower)
+                        # 5. Try DeepLabV3 (powerful CNN but slower)
                         if debug:
                             print("Auto: Trying DeepLabV3 method", file=sys.stderr)
                         cropped, debugImg, corners, success = detectDocumentPage_DeepLabV3(src, debug=debug)
