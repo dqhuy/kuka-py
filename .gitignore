@@ -3,11 +3,8 @@ kukalib/temp.py
 result.csv
 .vscode/launch.json
 *.pyc
-*.pyc
-*.pyc
-*.pyc
 kukalib/__pycache__
-kukalib/__pycache__/cardcrop.cpython-39.pyc
-kukalib/__pycache__/cardcrop.cpython-39.pyc
 .svn
 .vs
+# Note: kukalib/models/*.onnx files are tracked (model cache)
+# They will auto-download if not present
