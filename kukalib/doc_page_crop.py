@@ -19,6 +19,7 @@ import numpy as np
 import os
 import sys
 import datetime
+import traceback
 from typing import Tuple, Optional, List
 
 # Import existing cardcrop utilities
@@ -304,7 +305,13 @@ def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[
             print("DeepLabV3 Method: Using semantic segmentation", file=sys.stderr)
         
         # Load pre-trained model
-        model = deeplabv3_resnet50(pretrained=True)
+        try:
+            # Try new API first (PyTorch 0.13+)
+            from torchvision.models.segmentation import DeepLabV3_ResNet50_Weights
+            model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
+        except ImportError:
+            # Fallback to old API
+            model = deeplabv3_resnet50(pretrained=True)
         model.eval()
         
         # Preprocess image
