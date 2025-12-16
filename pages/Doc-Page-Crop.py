@@ -20,36 +20,43 @@ def main_loop():
     st.markdown("""
     **Tính năng:**
     - Tự động phát hiện vùng tài liệu trong ảnh
-    - Loại bỏ background thừa
-    - Chỉnh góc nghiêng và perspective
+    - Loại bỏ background thừa (KHÔNG làm xiên méo ảnh)
+    - Simple bounding box crop (KHÔNG perspective transform)
     - Hỗ trợ cả file PDF (tự động xử lý từng trang)
+    - Hiển thị thời gian detection (milliseconds)
     
     **Phương pháp:**
-    - **Auto**: Tự động chọn phương pháp tốt nhất (ưu tiên U2-Net)
-    - **U2-Net**: AI-based detection (KHUYẾN NGHỊ - chính xác nhất, model 4.4MB)
+    - **Auto**: Tự động chọn U2-Net → DeepLabV3 → Content
+    - **U2-Net** ⭐: AI-based detection (KHUYẾN NGHỊ - chính xác nhất)
+      - Full model (176MB): Độ chính xác cao nhất
+      - Lightweight (4.4MB): Nhanh hơn, độ chính xác tốt
     - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
     - **DeepLabV3**: Semantic segmentation CNN (cần cài thêm torch)
-    - **EdgeLinking**: Edge-based detection (tốt cho document có edge rõ)
-    - **Morphology**: Advanced morphological operations (tốt cho high-contrast)
-    - **OpenCV**: Traditional method (nhanh nhất, background đơn giản)
     
-    **Lưu ý**: U2-Net sẽ tự động tải model (4.4MB) vào thư mục kukalib/models/ lần đầu sử dụng.
+    **Ưu tiên**: KHÔNG crop vào content, chấp nhận thừa một chút background.
     """)
     
-    # Method selection and debug option
-    col_method, col_debug, col_empty = st.columns([1, 1, 1])
+    # Method selection, model selection, and debug option
+    col_method, col_model, col_debug = st.columns([1, 1, 1])
     with col_method:
         detection_method = st.selectbox(
-            "Chọn phương pháp phát hiện:",
-            ["auto", "u2net", "content", "deeplabv3", "edgelinking", "morphology", "opencv"],
+            "Chọn phương pháp:",
+            ["auto", "u2net", "deeplabv3", "content"],
             index=0,
-            help="Auto: Ưu tiên U2-Net (chính xác nhất). U2-Net: AI detection với model ONNX 4.4MB."
+            help="Auto: Ưu tiên U2-Net (chính xác nhất)"
+        )
+    with col_model:
+        u2net_model = st.selectbox(
+            "U2-Net Model:",
+            ["u2net", "u2netp"],
+            index=1,  # Default to u2netp (lightweight)
+            help="u2net: 176MB (chính xác nhất), u2netp: 4.4MB (nhanh hơn)"
         )
     with col_debug:
         show_debug = st.checkbox(
             "Debug mode",
             value=False,
-            help="Hiển thị thông tin debug chi tiết trong console"
+            help="Hiển thị thông tin debug chi tiết"
         )
     
     # Show example images
@@ -106,9 +113,10 @@ def main_loop():
                 st.markdown(f"### Trang {page_num + 1}/{len(images)}")
                 
                 with st.spinner(f'Đang xử lý trang {page_num + 1}...'):
-                    cropped, debug, corners, method_used = detectAndCropDocumentPage(
+                    cropped, debug, corners, method_used, time_ms = detectAndCropDocumentPage(
                         img, 
-                        method=detection_method, 
+                        method=detection_method,
+                        model_name=u2net_model,
                         debug=show_debug
                     )
                 
@@ -118,6 +126,7 @@ def main_loop():
                 with col1:
                     st.markdown("**Ảnh gốc**")
                     st.image(img, channels='BGR', use_column_width=True)
+                    st.caption(f"Kích thước: {img.shape[1]}x{img.shape[0]}")
                     # Download button for original image
                     is_success_orig, buffer_orig = cv2.imencode(".jpg", img)
                     if is_success_orig:
@@ -132,10 +141,12 @@ def main_loop():
                 with col2:
                     st.markdown(f"**Phát hiện** ({method_used})")
                     st.image(debug, channels='BGR', use_column_width=True)
+                    st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
                 
                 with col3:
                     st.markdown("**Kết quả**")
                     st.image(cropped, channels='BGR', use_column_width=True)
+                    st.caption(f"Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
                     
                     # Download button for cropped image
                     is_success, buffer = cv2.imencode(".jpg", cropped)
@@ -170,9 +181,10 @@ def main_loop():
         
         # Process image
         with st.spinner('Đang phát hiện và crop tài liệu...'):
-            cropped, debug, corners, method_used = detectAndCropDocumentPage(
+            cropped, debug, corners, method_used, time_ms = detectAndCropDocumentPage(
                 src, 
-                method=detection_method, 
+                method=detection_method,
+                model_name=u2net_model,
                 debug=show_debug
             )
         
@@ -184,17 +196,18 @@ def main_loop():
         with col1:
             st.markdown("**Ảnh gốc**")
             st.image(src, channels='BGR', use_column_width=True)
-            st.caption(f"Kích thước: {src.shape[1]}x{src.shape[0]}")
+            st.caption(f"📏 Kích thước: {src.shape[1]}x{src.shape[0]}")
         
         with col2:
             st.markdown(f"**Phát hiện**")
             st.image(debug, channels='BGR', use_column_width=True)
-            st.caption(f"Phương pháp: {method_used}")
+            st.caption(f"🔧 Phương pháp: {method_used}")
+            st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
         
         with col3:
             st.markdown("**Kết quả Crop**")
             st.image(cropped, channels='BGR', use_column_width=True)
-            st.caption(f"Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
+            st.caption(f"📏 Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
         
         # Download button
         st.markdown("---")
