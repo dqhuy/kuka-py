@@ -532,123 +532,104 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
         return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
 
 
-def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str]:
+def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name: str = 'u2net', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str, float]:
     """
     Main function to detect and crop document page from image.
     
     Automatically selects the best method or uses specified method.
+    Uses simple bounding box cropping (NO perspective transform/dewarp).
     
     Parameters:
     -----------
     src : np.ndarray
         Input image (BGR format)
     method : str
-        Detection method: 'auto', 'u2net', 'deeplabv3', 'edgelinking', 'morphology', 'opencv'
-        'auto' tries AI methods first (priority order), falls back to traditional methods
+        Detection method: 'auto', 'u2net', 'deeplabv3', 'content'
+        'auto' tries U2-Net first (best accuracy), falls back to others
+    model_name : str
+        For U2-Net: 'u2net' (176MB, default) or 'u2netp' (4.4MB lightweight)
     debug : bool
         If True, print debug information
         
     Returns:
     --------
-    tuple: (cropped_img, debug_img, corners, method_used)
-        cropped_img: Cropped and rectified document image
+    tuple: (cropped_img, debug_img, corners, method_used, time_ms)
+        cropped_img: Cropped document image (bounding box, no warp)
         debug_img: Visualization of detection process
         corners: Tuple of (tl, tr, br, bl) corner points
         method_used: String indicating which method was used
+        time_ms: Detection time in milliseconds
     """
     if debug:
         import sys
-        print(f"=== Document Page Detection ===", file=sys.stderr)
+        print(f"\n=== Document Page Detection ===", file=sys.stderr)
         print(f"Input image size: {src.shape[1]}x{src.shape[0]}", file=sys.stderr)
         print(f"Requested method: {method}", file=sys.stderr)
+        if method == 'u2net' or method == 'auto':
+            print(f"U2-Net model: {model_name}", file=sys.stderr)
     
     cropped = None
     debugImg = None
     corners = ([], [], [], [])
     method_used = "none"
     success = False
+    time_ms = 0.0
     
-    # Single method selection
-    if method == 'opencv':
-        cropped, debugImg, corners, success = detectDocumentPage_OpenCV(src, debug=debug)
-        method_used = "opencv"
-    elif method == 'u2net':
-        cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
+    # Method selection - only U2-Net, DeepLabV3, and Content-Based supported
+    if method == 'u2net':
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
         method_used = "u2net" if success else "u2net_failed"
     elif method == 'deeplabv3':
-        cropped, debugImg, corners, success = detectDocumentPage_DeepLabV3(src, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_DeepLabV3(src, debug=debug)
         method_used = "deeplabv3" if success else "deeplabv3_failed"
-    elif method == 'edgelinking':
-        cropped, debugImg, corners, success = detectDocumentPage_EdgeLinkingCNN(src, debug=debug)
-        method_used = "edgelinking" if success else "edgelinking_failed"
-    elif method == 'morphology':
-        cropped, debugImg, corners, success = detectDocumentPage_MorphologyBased(src, debug=debug)
-        method_used = "morphology" if success else "morphology_failed"
     elif method == 'content':
-        cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_ContentBased(src, debug=debug)
         method_used = "content" if success else "content_failed"
     else:  # method == 'auto'
-        # Priority order: U2-Net first (requested by user), then fallback methods
-        # U2-Net provides best accuracy for real-world documents
+        # Priority order: U2-Net first (best accuracy), then fallback methods
+        # Focus on U2-Net as primary method
         
-        # 1. Try U2-Net (BEST - AI-based, works with complex backgrounds)
-        cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
+        # 1. Try U2-Net (PRIMARY - AI-based, best for real-world documents)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
         if success:
             method_used = "u2net"
         else:
-            # 2. Try Content-Based (good for documents with clear margins)
+            # 2. Try DeepLabV3 (CNN fallback)
             if debug:
-                print("Auto: U2-Net failed, trying Content-Based method", file=sys.stderr)
-            cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
+                print("\nAuto: U2-Net failed, trying DeepLabV3 method", file=sys.stderr)
+            cropped, debugImg, corners, success, time_ms = detectDocumentPage_DeepLabV3(src, debug=debug)
             if success:
-                method_used = "content"
+                method_used = "deeplabv3"
             else:
-                # 3. Try Morphology-based (good for high-contrast docs)
+                # 3. Try Content-Based (final fallback for docs with margins)
                 if debug:
-                    print("Auto: Trying Morphology method", file=sys.stderr)
-                cropped, debugImg, corners, success = detectDocumentPage_MorphologyBased(src, debug=debug)
+                    print("\nAuto: DeepLabV3 failed, trying Content-Based method", file=sys.stderr)
+                cropped, debugImg, corners, success, time_ms = detectDocumentPage_ContentBased(src, debug=debug)
                 if success:
-                    method_used = "morphology"
+                    method_used = "content"
                 else:
-                    # 4. Try EdgeLinking (good for docs with clear edges)
-                    if debug:
-                        print("Auto: Trying EdgeLinking method", file=sys.stderr)
-                    cropped, debugImg, corners, success = detectDocumentPage_EdgeLinkingCNN(src, debug=debug)
-                    if success:
-                        method_used = "edgelinking"
-                    else:
-                        # 5. Try DeepLabV3 (powerful CNN but slower)
-                        if debug:
-                            print("Auto: Trying DeepLabV3 method", file=sys.stderr)
-                        cropped, debugImg, corners, success = detectDocumentPage_DeepLabV3(src, debug=debug)
-                        if success:
-                            method_used = "deeplabv3"
-                        else:
-                            # 6. Finally try traditional OpenCV
-                            if debug:
-                                print("Auto: Falling back to OpenCV method", file=sys.stderr)
-                            cropped, debugImg, corners, success = detectDocumentPage_OpenCV(src, debug=debug)
-                            if success:
-                                method_used = "opencv"
-                            else:
-                                method_used = "failed"
+                    method_used = "failed"
     
     # If detection failed, return original image
     if not success or cropped is None or cropped.size == 0:
         if debug:
-            print("Detection failed, returning original image")
+            print("\n⚠️  Detection failed, returning original image", file=sys.stderr)
         cropped = src.copy()
         debugImg = src.copy()
         corners = ([], [], [], [])
         method_used = "failed"
+        time_ms = 0.0
     
     if debug:
         import sys
+        print(f"\n{'='*70}", file=sys.stderr)
         print(f"Final method used: {method_used}", file=sys.stderr)
         print(f"Output image size: {cropped.shape[1]}x{cropped.shape[0]}", file=sys.stderr)
+        print(f"Detection time: {time_ms:.1f}ms", file=sys.stderr)
+        print(f"={'='*70}", file=sys.stderr)
         print("=== Detection Complete ===\n", file=sys.stderr)
     
-    return cropped, debugImg, corners, method_used
+    return cropped, debugImg, corners, method_used, time_ms
 
 
 def convertPdfToImages(pdf_path: str, output_dir: Optional[str] = None, dpi: int = 200) -> List[np.ndarray]:
@@ -708,7 +689,7 @@ def convertPdfToImages(pdf_path: str, output_dir: Optional[str] = None, dpi: int
         return []
 
 
-def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', debug: bool = False) -> List[Tuple[np.ndarray, np.ndarray]]:
+def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', model_name: str = 'u2net', debug: bool = False) -> List[Tuple[np.ndarray, np.ndarray, float]]:
     """
     Process all pages in a PDF document.
     
@@ -719,13 +700,15 @@ def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', deb
     output_dir : str
         Directory to save processed images
     method : str
-        Detection method: 'auto', 'u2net', 'opencv'
+        Detection method: 'auto', 'u2net', 'deeplabv3', 'content'
+    model_name : str
+        For U2-Net: 'u2net' (176MB, default) or 'u2netp' (4.4MB)
     debug : bool
         If True, print debug information
         
     Returns:
     --------
-    list: List of (cropped_image, debug_image) tuples for each page
+    list: List of (cropped_image, debug_image, time_ms) tuples for each page
     """
     # Convert PDF to images
     images = convertPdfToImages(pdf_path)
@@ -736,13 +719,18 @@ def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', deb
     
     results = []
     os.makedirs(output_dir, exist_ok=True)
+    total_time = 0.0
     
     for i, img in enumerate(images):
         if debug:
             print(f"\nProcessing page {i + 1}/{len(images)}...")
         
         # Detect and crop
-        cropped, debugImg, corners, method_used = detectAndCropDocumentPage(img, method=method, debug=debug)
+        cropped, debugImg, corners, method_used, time_ms = detectAndCropDocumentPage(
+            img, method=method, model_name=model_name, debug=debug
+        )
+        
+        total_time += time_ms
         
         # Save results
         cropped_path = os.path.join(output_dir, f"page_{i + 1}_cropped.jpg")
@@ -751,10 +739,14 @@ def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', deb
         cv2.imwrite(cropped_path, cropped)
         cv2.imwrite(debug_path, debugImg)
         
-        results.append((cropped, debugImg))
+        results.append((cropped, debugImg, time_ms))
         
         if debug:
-            print(f"Saved: {cropped_path}")
+            print(f"Saved: {cropped_path} ({time_ms:.1f}ms)")
+    
+    if debug:
+        print(f"\nTotal detection time: {total_time:.1f}ms ({total_time/1000:.2f}s)")
+        print(f"Average per page: {total_time/len(images):.1f}ms")
     
     return results
 
@@ -763,12 +755,14 @@ if __name__ == '__main__':
     import time
     
     if len(sys.argv) < 2:
-        print('Usage: python doc_page_crop.py [image_path or pdf_path] [method]')
-        print('Methods: auto (default), u2net, opencv')
+        print('Usage: python doc_page_crop.py [image_path or pdf_path] [method] [model]')
+        print('Methods: auto (default), u2net, deeplabv3, content')
+        print('Models (for u2net): u2net (176MB, default), u2netp (4.4MB)')
         sys.exit()
     
     path = sys.argv[1]
     method = sys.argv[2] if len(sys.argv) > 2 else 'auto'
+    model_name = sys.argv[3] if len(sys.argv) > 3 else 'u2net'
     
     if not os.path.exists(path):
         print(f'Error: Path does not exist: {path}')
@@ -778,7 +772,7 @@ if __name__ == '__main__':
     if path.lower().endswith('.pdf'):
         print(f"Processing PDF: {path}")
         output_dir = os.path.join(os.path.dirname(path), "output_pdf")
-        results = processPdfDocument(path, output_dir, method=method, debug=True)
+        results = processPdfDocument(path, output_dir, method=method, model_name=model_name, debug=True)
         print(f"\nProcessed {len(results)} pages")
         print(f"Results saved to: {output_dir}")
     else:
@@ -790,11 +784,10 @@ if __name__ == '__main__':
             sys.exit()
         
         print(f"Processing image: {path}")
-        start_time = time.time()
         
-        cropped, debugImg, corners, method_used = detectAndCropDocumentPage(src, method=method, debug=True)
-        
-        elapsed_time = time.time() - start_time
+        cropped, debugImg, corners, method_used, time_ms = detectAndCropDocumentPage(
+            src, method=method, model_name=model_name, debug=True
+        )
         
         # Save results
         output_dir = os.path.dirname(path)
@@ -806,7 +799,8 @@ if __name__ == '__main__':
         cv2.imwrite(cropped_path, cropped)
         cv2.imwrite(debug_path, debugImg)
         
-        print(f"\nProcessing completed in {elapsed_time:.3f} seconds")
+        print(f"\nProcessing completed!")
         print(f"Method used: {method_used}")
+        print(f"Detection time: {time_ms:.1f}ms")
         print(f"Cropped image saved to: {cropped_path}")
         print(f"Debug image saved to: {debug_path}")
