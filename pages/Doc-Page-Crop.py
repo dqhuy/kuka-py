@@ -18,22 +18,24 @@ def main_loop():
     
     # Add description
     st.markdown("""
-    **Tính năng:**
-    - Tự động phát hiện vùng tài liệu trong ảnh
-    - Loại bỏ background thừa (KHÔNG làm xiên méo ảnh)
-    - Simple bounding box crop (KHÔNG perspective transform)
-    - Hỗ trợ cả file PDF (tự động xử lý từng trang)
-    - Hiển thị thời gian detection (milliseconds)
+    **Tính năng V3:**
+    - 🎯 Crop thông minh sát nhất có thể (KHÔNG dùng margins cố định)
+    - 🔍 Phát hiện tài liệu nhiều trang (ví dụ: báo 2 trang)
+    - 📊 Hiển thị độ tin cậy (confidence score) cho mỗi detection
+    - ⚡ Mặc định: u2netp (nhẹ, nhanh)
+    - 🛡️ Tự động bỏ qua xử lý nếu nghi ngờ sẽ cắt content
+    - ⏱️ Hiển thị thời gian detection (milliseconds)
+    - 🚫 KHÔNG làm xiên méo ảnh (NO perspective transform)
     
     **Phương pháp:**
     - **Auto**: Tự động chọn U2-Net → DeepLabV3 → Content
-    - **U2-Net** ⭐: AI-based detection (KHUYẾN NGHỊ - chính xác nhất)
-      - Full model (176MB): Độ chính xác cao nhất
-      - Lightweight (4.4MB): Nhanh hơn, độ chính xác tốt
+    - **U2-Net** ⭐: AI-based detection (KHUYẾN NGHỊ)
+      - u2netp (4.4MB): MẶC ĐỊNH - Nhanh, độ tin cậy cao
+      - u2net (176MB): Chính xác tối đa
     - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
     - **DeepLabV3**: Semantic segmentation CNN (cần cài thêm torch)
     
-    **Ưu tiên**: KHÔNG crop vào content, chấp nhận thừa một chút background.
+    **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content.
     """)
     
     # Method selection, model selection, and debug option
@@ -48,9 +50,9 @@ def main_loop():
     with col_model:
         u2net_model = st.selectbox(
             "U2-Net Model:",
-            ["u2net", "u2netp"],
-            index=1,  # Default to u2netp (lightweight)
-            help="u2net: 176MB (chính xác nhất), u2netp: 4.4MB (nhanh hơn)"
+            ["u2netp", "u2net"],
+            index=0,  # Default to u2netp (lightweight) - V3 default
+            help="u2netp: 4.4MB (mặc định, nhanh), u2net: 176MB (chính xác cao hơn)"
         )
     with col_debug:
         show_debug = st.checkbox(
@@ -113,7 +115,7 @@ def main_loop():
                 st.markdown(f"### Trang {page_num + 1}/{len(images)}")
                 
                 with st.spinner(f'Đang xử lý trang {page_num + 1}...'):
-                    cropped, debug, corners, method_used, time_ms = detectAndCropDocumentPage(
+                    cropped, debug, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
                         img, 
                         method=detection_method,
                         model_name=u2net_model,
@@ -141,6 +143,7 @@ def main_loop():
                 with col2:
                     st.markdown(f"**Phát hiện** ({method_used})")
                     st.image(debug, channels='BGR', use_column_width=True)
+                    st.caption(f"⏱️ {time_ms:.1f}ms | 📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
                     st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
                 
                 with col3:
@@ -181,7 +184,7 @@ def main_loop():
         
         # Process image
         with st.spinner('Đang phát hiện và crop tài liệu...'):
-            cropped, debug, corners, method_used, time_ms = detectAndCropDocumentPage(
+            cropped, debug, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
                 src, 
                 method=detection_method,
                 model_name=u2net_model,
@@ -203,6 +206,7 @@ def main_loop():
             st.image(debug, channels='BGR', use_column_width=True)
             st.caption(f"🔧 Phương pháp: {method_used}")
             st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
+            st.caption(f"📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
         
         with col3:
             st.markdown("**Kết quả Crop**")

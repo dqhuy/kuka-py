@@ -41,41 +41,33 @@ def getVersionInfo():
     return versionInfo
 
 
-def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2net', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float]:
     """
-    Detect document page using U2-Net AI model with intelligent tight cropping.
-    
-    V3 Improvements:
-    - Default to u2netp (lightweight model)
-    - Intelligent tight cropping (no fixed margins)
-    - Multiple contour detection (handles 2-page documents)
-    - Confidence scoring system
-    - Smart content verification to avoid cutting text
+    Detect document page using U2-Net AI model.
     
     This method uses deep learning for robust detection even with complex backgrounds.
     Uses standalone U2-Net implementation with simple bounding box cropping.
     NO perspective transform/dewarp - prioritizes preserving content over perfect crop.
     
-    Best for: Complex backgrounds, poor lighting, cluttered scenes, multi-page documents
+    Best for: Complex backgrounds, poor lighting, cluttered scenes
     
     Parameters:
     -----------
     src : np.ndarray
         Input image (BGR format)
     model_name : str
-        'u2netp' for lightweight (4.4MB, default) or 'u2net' for full model (176MB)
+        'u2net' for full model (176MB, default) or 'u2netp' for lightweight (4.4MB)
     debug : bool
         If True, print extensive debug information
         
     Returns:
     --------
-    tuple: (cropped_img, debug_img, corners, success, time_ms, confidence)
+    tuple: (cropped_img, debug_img, corners, success, time_ms)
         cropped_img: Cropped image (bounding box only, no warp)
         debug_img: Visualization of detection process
         corners: Tuple of (tl, tr, br, bl) corner points
         success: Boolean indicating if detection succeeded
         time_ms: Detection time in milliseconds
-        confidence: Confidence score (0-1) for the detection quality
     """
     import time
     start_time = time.time()
@@ -99,8 +91,7 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         if mask is None:
             if debug:
                 print("❌ U2-Net inference failed", file=sys.stderr)
-            time_ms = (time.time() - start_time) * 1000
-            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
         
         if debug:
             print(f"✅ Got mask from U2-Net: {mask.shape}", file=sys.stderr)
@@ -138,133 +129,31 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         if len(contours) == 0:
             if debug:
                 print("❌ No contours found in mask", file=sys.stderr)
-            time_ms = (time.time() - start_time) * 1000
-            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
         
-        # Sort contours by area to analyze multiple potential document regions
-        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        
-        if debug:
-            print(f"✅ Analyzing top contours:", file=sys.stderr)
-            for i, cnt in enumerate(sorted_contours[:5]):  # Top 5
-                area = cv2.contourArea(cnt)
-                area_pct = area / (src.shape[0] * src.shape[1]) * 100
-                print(f"   Contour {i+1}: area={area:.0f} ({area_pct:.1f}%)", file=sys.stderr)
-        
-        # Check for multiple significant contours (e.g., 2-page newspaper)
-        significant_contours = []
-        for cnt in sorted_contours:
-            area = cv2.contourArea(cnt)
-            area_ratio = area / (src.shape[0] * src.shape[1])
-            if area_ratio > 0.05:  # At least 5% of image
-                significant_contours.append(cnt)
-            if len(significant_contours) >= 3:  # Max 3 regions
-                break
+        # Get largest contour
+        largest_contour = max(contours, key=cv2.contourArea)
+        contour_area = cv2.contourArea(largest_contour)
         
         if debug:
-            print(f"✅ Found {len(significant_contours)} significant contours (>5% of image)", file=sys.stderr)
+            print(f"✅ Largest contour area: {contour_area} pixels", file=sys.stderr)
         
-        # If multiple significant contours, combine them (multi-page document case)
-        if len(significant_contours) > 1:
-            if debug:
-                print(f"⚠️  Multiple document regions detected - combining to avoid content loss", file=sys.stderr)
-            # Combine all significant contours
-            all_points = np.vstack([cnt for cnt in significant_contours])
-            x, y, w, h = cv2.boundingRect(all_points)
-            combined = True
-        else:
-            # Single contour
-            largest_contour = significant_contours[0]
-            x, y, w, h = cv2.boundingRect(largest_contour)
-            combined = False
+        # Get bounding rectangle
+        x, y, w, h = cv2.boundingRect(largest_contour)
         
         if debug:
-            print(f"✅ Bounding rectangle: x={x}, y={y}, w={w}, h={h}", file=sys.stderr)
-            if combined:
-                print(f"   (Combined from {len(significant_contours)} regions)", file=sys.stderr)
+            print(f"✅ Initial bounding rectangle: x={x}, y={y}, w={w}, h={h}", file=sys.stderr)
         
-        # Calculate area statistics
-        bbox_area = w * h
-        img_area = src.shape[0] * src.shape[1]
-        area_ratio = bbox_area / img_area
-        
+        # Check if area is significant (at least 10% of image, more lenient)
+        area_ratio = (w * h) / (src.shape[0] * src.shape[1])
         if debug:
             print(f"   Area ratio: {area_ratio*100:.2f}% of image", file=sys.stderr)
         
-        # Confidence scoring system
-        confidence = 0.0
-        confidence_factors = {}
-        
-        # Factor 1: Area ratio (0-0.35 points)
-        if area_ratio > 0.85:
-            confidence_factors['area'] = 0.35  # High confidence - document fills image
-        elif area_ratio > 0.50:
-            confidence_factors['area'] = 0.30  # Good confidence
-        elif area_ratio > 0.20:
-            confidence_factors['area'] = 0.20  # Moderate confidence
-        else:
-            confidence_factors['area'] = 0.10  # Low confidence
-        
-        # Factor 2: Mask quality (0-0.25 points)
-        mask_fill_ratio = np.count_nonzero(mask_cleaned) / mask_cleaned.size
-        if mask_fill_ratio > 0.30:
-            confidence_factors['mask_quality'] = 0.25
-        elif mask_fill_ratio > 0.15:
-            confidence_factors['mask_quality'] = 0.20
-        else:
-            confidence_factors['mask_quality'] = 0.10
-        
-        # Factor 3: Aspect ratio (0-0.20 points)
-        aspect_ratio = w / h if h > 0 else 0
-        # Document typically has reasonable aspect ratio (0.3 to 3.0)
-        if 0.5 <= aspect_ratio <= 2.0:
-            confidence_factors['aspect'] = 0.20  # Standard document proportions
-        elif 0.3 <= aspect_ratio <= 3.0:
-            confidence_factors['aspect'] = 0.15  # Acceptable
-        else:
-            confidence_factors['aspect'] = 0.05  # Unusual aspect ratio
-        
-        # Factor 4: Multiple contours penalty/bonus (0-0.20 points)
-        if combined:
-            # Multiple regions - lower confidence but prevented content loss
-            confidence_factors['multi_region'] = 0.10
-        else:
-            # Single clear region - higher confidence
-            confidence_factors['multi_region'] = 0.20
-        
-        # Calculate total confidence
-        confidence = sum(confidence_factors.values())
-        
-        if debug:
-            print(f"\n✅ Confidence Scoring:", file=sys.stderr)
-            for factor, score in confidence_factors.items():
-                print(f"   {factor}: {score:.2f}", file=sys.stderr)
-            print(f"   TOTAL CONFIDENCE: {confidence:.2f} ({confidence*100:.0f}%)", file=sys.stderr)
-        
-        # Decision logic based on confidence and area ratio
-        should_skip_crop = False
-        skip_reason = ""
-        
-        # Rule 1: Document occupies most of image (>92%) - likely no background
-        if area_ratio > 0.92:
-            should_skip_crop = True
-            skip_reason = "no background detected (>92% coverage)"
-            confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
-        
-        # Rule 2: Very low confidence (<0.30) - suspicious, might cut content
-        elif confidence < 0.30:
-            should_skip_crop = True
-            skip_reason = f"low confidence ({confidence:.2f})"
-        
-        # Rule 3: Would remove too much (>70% removal) with low confidence
-        elif area_ratio < 0.30 and confidence < 0.50:
-            should_skip_crop = True
-            skip_reason = f"suspicious crop (would remove {(1-area_ratio)*100:.0f}%, confidence={confidence:.2f})"
-        
-        if should_skip_crop:
+        # If document occupies most of image (>90%), assume no background - skip cropping
+        if area_ratio > 0.90:
             if debug:
-                print(f"\n⚠️  SKIPPING CROP: {skip_reason}", file=sys.stderr)
-                print(f"   Returning original image to preserve all content", file=sys.stderr)
+                print(f"⚠️  Document occupies {area_ratio*100:.1f}% of image - minimal/no background", file=sys.stderr)
+                print(f"   Skipping crop to avoid cutting content", file=sys.stderr)
             
             time_ms = (time.time() - start_time) * 1000
             
@@ -273,121 +162,82 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             h_img, w_img = src.shape[:2]
             corners = np.array([[0, 0], [w_img, 0], [w_img, h_img], [0, h_img]])
             cv2.rectangle(lineImg, (0, 0), (w_img, h_img), (0, 255, 0), 3)
-            cv2.putText(lineImg, f"NO CROP: {skip_reason}", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(lineImg, f"Confidence: {confidence:.2f}", (10, 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(lineImg, "NO CROP (no background)", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             
             topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners
-            return src.copy(), lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
+            return src.copy(), lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms
         
-        # Proceed with intelligent tight cropping
-        if debug:
-            print(f"\n✅ Proceeding with INTELLIGENT TIGHT CROP", file=sys.stderr)
-            print(f"   Confidence: {confidence:.2f}", file=sys.stderr)
-        
-        # Intelligent margin calculation (adaptive, NOT fixed 5-10%)
-        # Analyze edges to determine if we can crop tighter
-        edge_margin_pixels = 3  # Minimum pixels to keep from edge
-        
-        # Check boundary densities to see if we can crop tighter
-        # Left edge
-        left_strip = mask_cleaned[y:y+h, max(0, x-20):x+5]
-        left_density = np.count_nonzero(left_strip) / left_strip.size if left_strip.size > 0 else 0
-        
-        # Right edge
-        right_strip = mask_cleaned[y:y+h, x+w-5:min(mask_cleaned.shape[1], x+w+20)]
-        right_density = np.count_nonzero(right_strip) / right_strip.size if right_strip.size > 0 else 0
-        
-        # Top edge
-        top_strip = mask_cleaned[max(0, y-20):y+5, x:x+w]
-        top_density = np.count_nonzero(top_strip) / top_strip.size if top_strip.size > 0 else 0
-        
-        # Bottom edge
-        bottom_strip = mask_cleaned[y+h-5:min(mask_cleaned.shape[0], y+h+20), x:x+w]
-        bottom_density = np.count_nonzero(bottom_strip) / bottom_strip.size if bottom_strip.size > 0 else 0
-        
-        if debug:
-            print(f"\n✅ Edge Analysis (density of content near boundaries):", file=sys.stderr)
-            print(f"   Left: {left_density:.2f}, Right: {right_density:.2f}", file=sys.stderr)
-            print(f"   Top: {top_density:.2f}, Bottom: {bottom_density:.2f}", file=sys.stderr)
-        
-        # Adaptive margins based on edge density
-        # If edge density is very low (<0.05), we can crop tighter
-        # If edge density is high (>0.20), add small safety margin
-        
-        margin_left = edge_margin_pixels if left_density < 0.05 else int(w * 0.01) if left_density < 0.20 else int(w * 0.02)
-        margin_right = edge_margin_pixels if right_density < 0.05 else int(w * 0.01) if right_density < 0.20 else int(w * 0.02)
-        margin_top = edge_margin_pixels if top_density < 0.05 else int(h * 0.01) if top_density < 0.20 else int(h * 0.02)
-        margin_bottom = edge_margin_pixels if bottom_density < 0.05 else int(h * 0.01) if bottom_density < 0.20 else int(h * 0.02)
-        
-        if debug:
-            print(f"\n✅ Adaptive Margins Calculated:", file=sys.stderr)
-            print(f"   Left: {margin_left}px, Right: {margin_right}px", file=sys.stderr)
-            print(f"   Top: {margin_top}px, Bottom: {margin_bottom}px", file=sys.stderr)
-            print(f"   (Based on edge content density)", file=sys.stderr)
-        
-        # Apply intelligent margins
-        x_crop = max(0, x - margin_left)
-        y_crop = max(0, y - margin_top)
-        w_crop = min(src.shape[1] - x_crop, w + margin_left + margin_right)
-        h_crop = min(src.shape[0] - y_crop, h + margin_top + margin_bottom)
-        
-        # Final content safety check
-        crop_area_final = w_crop * h_crop
-        crop_ratio_final = crop_area_final / img_area
-        
-        if debug:
-            print(f"\n✅ Final Crop Rectangle:", file=sys.stderr)
-            print(f"   x={x_crop}, y={y_crop}, w={w_crop}, h={h_crop}", file=sys.stderr)
-            print(f"   Final crop area: {crop_ratio_final*100:.1f}% of original", file=sys.stderr)
-        
-        # Safety check: if we're still removing too much with low confidence, don't crop
-        if crop_ratio_final < 0.25 and confidence < 0.55:
+        if area_ratio < 0.10:
             if debug:
-                print(f"\n⚠️  FINAL SAFETY CHECK FAILED", file=sys.stderr)
-                print(f"   Would remove {(1-crop_ratio_final)*100:.0f}% with confidence {confidence:.2f}", file=sys.stderr)
-                print(f"   Returning original to preserve content", file=sys.stderr)
-            
+                print(f"❌ Detected area too small (< 10%): {area_ratio*100:.1f}%", file=sys.stderr)
             time_ms = (time.time() - start_time) * 1000
-            lineImg = src.copy()
-            h_img, w_img = src.shape[:2]
-            corners = np.array([[0, 0], [w_img, 0], [w_img, h_img], [0, h_img]])
-            cv2.rectangle(lineImg, (0, 0), (w_img, h_img), (255, 0, 0), 3)
-            cv2.putText(lineImg, "NO CROP: Safety check", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            cv2.putText(lineImg, f"Confidence: {confidence:.2f}", (10, 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            
-            topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners
-            return src.copy(), lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
         
-        # Apply the intelligent crop
-        cropedImg = src[y_crop:y_crop+h_crop, x_crop:x_crop+w_crop].copy()
+        # Add safety margins to avoid cutting content (5% padding on each side)
+        margin_x = int(w * 0.05)
+        margin_y = int(h * 0.05)
+        
+        x_safe = max(0, x - margin_x)
+        y_safe = max(0, y - margin_y)
+        w_safe = min(src.shape[1] - x_safe, w + 2 * margin_x)
+        h_safe = min(src.shape[0] - y_safe, h + 2 * margin_y)
         
         if debug:
-            print(f"\n✅ INTELLIGENT TIGHT CROP APPLIED", file=sys.stderr)
-            print(f"   Output shape: {cropedImg.shape}", file=sys.stderr)
-            print(f"   Removed: {(1-crop_ratio_final)*100:.1f}% of original", file=sys.stderr)
+            print(f"✅ Safe bounding box with 5% margins:", file=sys.stderr)
+            print(f"   x={x_safe}, y={y_safe}, w={w_safe}, h={h_safe}", file=sys.stderr)
+            print(f"   Margins added: x±{margin_x}px, y±{margin_y}px", file=sys.stderr)
+        
+        # Content verification: check if we're not cutting too much
+        orig_area = src.shape[0] * src.shape[1]
+        crop_area = w_safe * h_safe
+        crop_ratio = crop_area / orig_area
+        
+        if debug:
+            print(f"✅ Content verification:", file=sys.stderr)
+            print(f"   Original area: {orig_area} pixels", file=sys.stderr)
+            print(f"   Crop area: {crop_area} pixels ({crop_ratio*100:.1f}% of original)", file=sys.stderr)
+        
+        # If crop is removing too much (would keep <40%), be more conservative
+        if crop_ratio < 0.40:
+            if debug:
+                print(f"⚠️  Crop would remove >{100-40}% of image - being more conservative", file=sys.stderr)
+            # Use even more conservative margins
+            margin_x = int(w * 0.10)
+            margin_y = int(h * 0.10)
+            x_safe = max(0, x - margin_x)
+            y_safe = max(0, y - margin_y)
+            w_safe = min(src.shape[1] - x_safe, w + 2 * margin_x)
+            h_safe = min(src.shape[0] - y_safe, h + 2 * margin_y)
+            if debug:
+                print(f"   Adjusted to 10% margins: x={x_safe}, y={y_safe}, w={w_safe}, h={h_safe}", file=sys.stderr)
+        
+        # Simple crop (NO perspective transform, NO dewarp)
+        cropedImg = src[y_safe:y_safe+h_safe, x_safe:x_safe+w_safe].copy()
+        
+        if debug:
+            print(f"✅ Simple bounding box crop applied (NO WARP)", file=sys.stderr)
+            print(f"   Output image shape: {cropedImg.shape}", file=sys.stderr)
         
         # Create corners for the bounding box
         corners_ordered = np.array([
-            [x_crop, y_crop],  # top-left
-            [x_crop + w_crop, y_crop],  # top-right
-            [x_crop + w_crop, y_crop + h_crop],  # bottom-right
-            [x_crop, y_crop + h_crop]  # bottom-left
+            [x_safe, y_safe],  # top-left
+            [x_safe + w_safe, y_safe],  # top-right
+            [x_safe + w_safe, y_safe + h_safe],  # bottom-right
+            [x_safe, y_safe + h_safe]  # bottom-left
         ])
+        
+        if debug:
+            print(f"✅ Bounding box corners:", file=sys.stderr)
+            print(f"   Top-left: {corners_ordered[0]}", file=sys.stderr)
+            print(f"   Top-right: {corners_ordered[1]}", file=sys.stderr)
+            print(f"   Bottom-right: {corners_ordered[2]}", file=sys.stderr)
+            print(f"   Bottom-left: {corners_ordered[3]}", file=sys.stderr)
         
         # Create debug visualization
         lineImg = src.copy()
         
-        # Draw all significant contours if multiple
-        if len(significant_contours) > 1:
-            for i, cnt in enumerate(significant_contours):
-                color = [(255, 0, 0), (0, 255, 255), (255, 0, 255)][i % 3]
-                cv2.drawContours(lineImg, [cnt], -1, color, 2)
-        
-        # Draw final bounding box
+        # Draw bounding box
         pt1 = tuple(map(int, corners_ordered[0]))
         pt2 = tuple(map(int, corners_ordered[2]))
         cv2.rectangle(lineImg, pt1, pt2, (0, 255, 0), 3)
@@ -395,14 +245,8 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         # Draw corners
         for i, corner in enumerate(corners_ordered):
             corner_int = tuple(map(int, corner))
-            cv2.circle(lineImg, corner_int, 8, (0, 0, 255), -1)
-        
-        # Add confidence and info text
-        cv2.putText(lineImg, f"Confidence: {confidence:.2f} ({confidence*100:.0f}%)", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        if combined:
-            cv2.putText(lineImg, f"Multi-region: {len(significant_contours)} areas", (10, 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.circle(lineImg, corner_int, 10, (0, 0, 255), -1)
+            cv2.putText(lineImg, str(i+1), corner_int, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         
         # Draw mask overlay (lighter for better visibility)
         mask_color = cv2.applyColorMap(mask_cleaned, cv2.COLORMAP_JET)
@@ -412,32 +256,32 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         time_ms = (time.time() - start_time) * 1000
         
         if debug:
+            print(f"✅ Debug visualization created", file=sys.stderr)
             print(f"\n{'='*70}", file=sys.stderr)
             print(f"U2-Net Method: SUCCESS", file=sys.stderr)
             print(f"Document area: {area_ratio*100:.2f}% of original image", file=sys.stderr)
             print(f"Cropped size: {cropedImg.shape[1]}x{cropedImg.shape[0]}", file=sys.stderr)
-            print(f"Confidence: {confidence:.2f} ({confidence*100:.0f}%)", file=sys.stderr)
             print(f"Detection time: {time_ms:.1f}ms", file=sys.stderr)
             print(f"{'='*70}\n", file=sys.stderr)
         
         topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
-        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
+        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms
         
     except ImportError as e:
         time_ms = (time.time() - start_time) * 1000
         if debug:
             print(f"❌ Import error: {e}", file=sys.stderr)
             print("   Make sure onnxruntime is installed: pip install onnxruntime", file=sys.stderr)
-        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
     except Exception as e:
         time_ms = (time.time() - start_time) * 1000
         if debug:
             print(f"❌ U2-Net Method: Error occurred: {str(e)}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
-        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
 
 
-def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float]:
     """
     Detect document page using DeepLabV3 semantic segmentation.
     
@@ -453,7 +297,7 @@ def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[
         
     Returns:
     --------
-    tuple: (cropped_img, debug_img, corners, success, time_ms, confidence)
+    tuple: (cropped_img, debug_img, corners, success, time_ms)
     """
     import time
     start_time = time.time()
@@ -508,7 +352,7 @@ def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[
             time_ms = (time.time() - start_time) * 1000
             if debug:
                 print("DeepLabV3 Method: No contours found", file=sys.stderr)
-            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
         
         # Get largest contour
         largest_contour = max(contours, key=cv2.contourArea)
@@ -518,7 +362,7 @@ def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[
             time_ms = (time.time() - start_time) * 1000
             if debug:
                 print(f"DeepLabV3 Method: Area too small ({area_ratio*100:.1f}%)", file=sys.stderr)
-            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
         
         # Approximate to quadrilateral
         peri = cv2.arcLength(largest_contour, True)
@@ -544,23 +388,22 @@ def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[
             cv2.circle(lineImg, tuple(corner), 8, (255, 0, 0), -1)
         
         time_ms = (time.time() - start_time) * 1000
-        confidence = 0.6  # Default confidence for DeepLabV3
         
         if debug:
             print(f"DeepLabV3 Method: Success (area: {area_ratio*100:.1f}%)", file=sys.stderr)
             print(f"Detection time: {time_ms:.1f}ms", file=sys.stderr)
         
         topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
-        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
+        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms
         
     except Exception as e:
         time_ms = (time.time() - start_time) * 1000
         if debug:
             print(f"DeepLabV3 Method: Error - {str(e)}", file=sys.stderr)
-        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
 
 
-def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float]:
     """
     Detect document page by finding the content-rich region.
     
@@ -576,7 +419,7 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
         
     Returns:
     --------
-    tuple: (cropped_img, debug_img, corners, success, time_ms, confidence)
+    tuple: (cropped_img, debug_img, corners, success, time_ms)
     """
     import time
     start_time = time.time()
@@ -651,7 +494,7 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
             time_ms = (time.time() - start_time) * 1000
             if debug:
                 print(f"Content-Based Method: Invalid area ratio {area_ratio:.2f}", file=sys.stderr)
-            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
         
         # Create corners
         corners = np.array([
@@ -671,7 +514,6 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
             cv2.circle(lineImg, tuple(corner), 8, (0, 0, 255), -1)
         
         time_ms = (time.time() - start_time) * 1000
-        confidence = 0.5  # Default confidence for Content-Based
         
         if debug:
             print(f"Content-Based Method: Success (area: {area_ratio*100:.1f}%)", file=sys.stderr)
@@ -679,7 +521,7 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
             print(f"Detection time: {time_ms:.1f}ms", file=sys.stderr)
         
         topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners
-        return cropped, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
+        return cropped, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms
         
     except Exception as e:
         time_ms = (time.time() - start_time) * 1000
@@ -687,14 +529,12 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
             print(f"Content-Based Method: Error - {str(e)}", file=sys.stderr)
             import traceback
             traceback.print_exc()
-        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms
 
 
-def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name: str = 'u2netp', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
+def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name: str = 'u2net', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str, float]:
     """
     Main function to detect and crop document page from image.
-    
-    V3 improvements: Default to u2netp (lightweight), intelligent tight cropping, confidence scoring.
     
     Automatically selects the best method or uses specified method.
     Uses simple bounding box cropping (NO perspective transform/dewarp).
@@ -707,19 +547,18 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
         Detection method: 'auto', 'u2net', 'deeplabv3', 'content'
         'auto' tries U2-Net first (best accuracy), falls back to others
     model_name : str
-        For U2-Net: 'u2netp' (4.4MB, default) or 'u2net' (176MB for maximum accuracy)
+        For U2-Net: 'u2net' (176MB, default) or 'u2netp' (4.4MB lightweight)
     debug : bool
         If True, print debug information
         
     Returns:
     --------
-    tuple: (cropped_img, debug_img, corners, method_used, time_ms, confidence)
+    tuple: (cropped_img, debug_img, corners, method_used, time_ms)
         cropped_img: Cropped document image (bounding box, no warp)
         debug_img: Visualization of detection process
         corners: Tuple of (tl, tr, br, bl) corner points
         method_used: String indicating which method was used
         time_ms: Detection time in milliseconds
-        confidence: Confidence score (0-1) for detection quality
     """
     if debug:
         import sys
@@ -735,38 +574,37 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     method_used = "none"
     success = False
     time_ms = 0.0
-    confidence = 0.0
     
     # Method selection - only U2-Net, DeepLabV3, and Content-Based supported
     if method == 'u2net':
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
         method_used = "u2net" if success else "u2net_failed"
     elif method == 'deeplabv3':
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_DeepLabV3(src, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_DeepLabV3(src, debug=debug)
         method_used = "deeplabv3" if success else "deeplabv3_failed"
     elif method == 'content':
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_ContentBased(src, debug=debug)
         method_used = "content" if success else "content_failed"
     else:  # method == 'auto'
         # Priority order: U2-Net first (best accuracy), then fallback methods
         # Focus on U2-Net as primary method
         
         # 1. Try U2-Net (PRIMARY - AI-based, best for real-world documents)
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
+        cropped, debugImg, corners, success, time_ms = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
         if success:
             method_used = "u2net"
         else:
             # 2. Try DeepLabV3 (CNN fallback)
             if debug:
                 print("\nAuto: U2-Net failed, trying DeepLabV3 method", file=sys.stderr)
-            cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_DeepLabV3(src, debug=debug)
+            cropped, debugImg, corners, success, time_ms = detectDocumentPage_DeepLabV3(src, debug=debug)
             if success:
                 method_used = "deeplabv3"
             else:
                 # 3. Try Content-Based (final fallback for docs with margins)
                 if debug:
                     print("\nAuto: DeepLabV3 failed, trying Content-Based method", file=sys.stderr)
-                cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
+                cropped, debugImg, corners, success, time_ms = detectDocumentPage_ContentBased(src, debug=debug)
                 if success:
                     method_used = "content"
                 else:
@@ -781,7 +619,6 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
         corners = ([], [], [], [])
         method_used = "failed"
         time_ms = 0.0
-        confidence = 0.0
     
     if debug:
         import sys
@@ -789,11 +626,10 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
         print(f"Final method used: {method_used}", file=sys.stderr)
         print(f"Output image size: {cropped.shape[1]}x{cropped.shape[0]}", file=sys.stderr)
         print(f"Detection time: {time_ms:.1f}ms", file=sys.stderr)
-        print(f"Confidence: {confidence:.2f} ({confidence*100:.0f}%)", file=sys.stderr)
         print(f"={'='*70}", file=sys.stderr)
         print("=== Detection Complete ===\n", file=sys.stderr)
     
-    return cropped, debugImg, corners, method_used, time_ms, confidence
+    return cropped, debugImg, corners, method_used, time_ms
 
 
 def convertPdfToImages(pdf_path: str, output_dir: Optional[str] = None, dpi: int = 200) -> List[np.ndarray]:
@@ -890,7 +726,7 @@ def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', mod
             print(f"\nProcessing page {i + 1}/{len(images)}...")
         
         # Detect and crop
-        cropped, debugImg, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
+        cropped, debugImg, corners, method_used, time_ms = detectAndCropDocumentPage(
             img, method=method, model_name=model_name, debug=debug
         )
         
@@ -903,10 +739,10 @@ def processPdfDocument(pdf_path: str, output_dir: str, method: str = 'auto', mod
         cv2.imwrite(cropped_path, cropped)
         cv2.imwrite(debug_path, debugImg)
         
-        results.append((cropped, debugImg, time_ms, confidence))
+        results.append((cropped, debugImg, time_ms))
         
         if debug:
-            print(f"Saved: {cropped_path} ({time_ms:.1f}ms, confidence: {confidence:.2f})")
+            print(f"Saved: {cropped_path} ({time_ms:.1f}ms)")
     
     if debug:
         print(f"\nTotal detection time: {total_time:.1f}ms ({total_time/1000:.2f}s)")
@@ -926,7 +762,7 @@ if __name__ == '__main__':
     
     path = sys.argv[1]
     method = sys.argv[2] if len(sys.argv) > 2 else 'auto'
-    model_name = sys.argv[3] if len(sys.argv) > 3 else 'u2netp'  # V3: Default to lightweight model
+    model_name = sys.argv[3] if len(sys.argv) > 3 else 'u2net'
     
     if not os.path.exists(path):
         print(f'Error: Path does not exist: {path}')
@@ -949,7 +785,7 @@ if __name__ == '__main__':
         
         print(f"Processing image: {path}")
         
-        cropped, debugImg, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
+        cropped, debugImg, corners, method_used, time_ms = detectAndCropDocumentPage(
             src, method=method, model_name=model_name, debug=True
         )
         
@@ -966,6 +802,5 @@ if __name__ == '__main__':
         print(f"\nProcessing completed!")
         print(f"Method used: {method_used}")
         print(f"Detection time: {time_ms:.1f}ms")
-        print(f"Confidence: {confidence:.2f} ({confidence*100:.0f}%)")
         print(f"Cropped image saved to: {cropped_path}")
         print(f"Debug image saved to: {debug_path}")
