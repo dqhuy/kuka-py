@@ -25,9 +25,13 @@ def main_loop():
     - Hỗ trợ cả file PDF (tự động xử lý từng trang)
     
     **Phương pháp:**
-    - **Auto**: Tự động chọn phương pháp tốt nhất
-    - **OpenCV**: Phương pháp truyền thống (nhanh, phù hợp với background đơn giản)
-    - **U2-Net**: AI-based detection (chính xác hơn với background phức tạp) - Yêu cầu cài đặt thêm `rembg`
+    - **Auto**: Tự động chọn phương pháp tốt nhất (ưu tiên Content-Based)
+    - **Content**: Content-based detection (TỐT NHẤT cho tài liệu thực tế)
+    - **U2-Net**: AI-based background removal (chính xác cao, cần torch + rembg)
+    - **DeepLabV3**: Semantic segmentation CNN (robust, cần torch)
+    - **EdgeLinking**: Edge-based CNN (tốt cho document có edge rõ)
+    - **Morphology**: Advanced morphological operations (tốt cho high-contrast)
+    - **OpenCV**: Traditional method (nhanh nhất, background đơn giản)
     """)
     
     # Method selection and debug option
@@ -35,9 +39,9 @@ def main_loop():
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp phát hiện:",
-            ["auto", "opencv", "u2net"],
+            ["auto", "content", "u2net", "deeplabv3", "edgelinking", "morphology", "opencv"],
             index=0,
-            help="Auto: Tự động chọn phương pháp tốt nhất. OpenCV: Nhanh nhưng cần background rõ ràng. U2-Net: Chính xác với background phức tạp."
+            help="Auto: Tự động thử các phương pháp theo thứ tự ưu tiên. Content: Tìm vùng có nội dung text (tốt nhất cho tài liệu thực tế)."
         )
     with col_debug:
         show_debug = st.checkbox(
@@ -51,13 +55,13 @@ def main_loop():
     col_ex1, col_ex2, col_ex3 = st.columns(3)
     with col_ex1:
         if os.path.exists('docs/samples/input/sample1_simple_document.jpg'):
-            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc', use_container_width=True)
+            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc', width='stretch')
     with col_ex2:
         if os.path.exists('docs/samples/output/sample1_simple_document_debug.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện', use_container_width=True)
+            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện', width='stretch')
     with col_ex3:
         if os.path.exists('docs/samples/output/sample1_simple_document_cropped.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả', use_container_width=True)
+            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả', width='stretch')
     
     st.markdown("---")
     
@@ -111,24 +115,35 @@ def main_loop():
                 
                 with col1:
                     st.markdown("**Ảnh gốc**")
-                    st.image(img, channels='BGR', use_container_width=True)
+                    st.image(img, channels='BGR', width='stretch')
+                    # Download button for original image
+                    is_success_orig, buffer_orig = cv2.imencode(".jpg", img)
+                    if is_success_orig:
+                        st.download_button(
+                            label=f"⬇️ Tải ảnh gốc",
+                            data=buffer_orig.tobytes(),
+                            file_name=f"page_{page_num + 1}_original.jpg",
+                            mime="image/jpeg",
+                            key=f"dl_orig_{page_num}"
+                        )
                 
                 with col2:
                     st.markdown(f"**Phát hiện** ({method_used})")
-                    st.image(debug, channels='BGR', use_container_width=True)
+                    st.image(debug, channels='BGR', width='stretch')
                 
                 with col3:
                     st.markdown("**Kết quả**")
-                    st.image(cropped, channels='BGR', use_container_width=True)
+                    st.image(cropped, channels='BGR', width='stretch')
                     
                     # Download button for cropped image
                     is_success, buffer = cv2.imencode(".jpg", cropped)
                     if is_success:
                         st.download_button(
-                            label=f"⬇️ Tải về trang {page_num + 1}",
+                            label=f"⬇️ Tải kết quả",
                             data=buffer.tobytes(),
                             file_name=f"page_{page_num + 1}_cropped.jpg",
-                            mime="image/jpeg"
+                            mime="image/jpeg",
+                            key=f"dl_crop_{page_num}"
                         )
                 
                 if page_num < len(images) - 1:
@@ -166,17 +181,17 @@ def main_loop():
         
         with col1:
             st.markdown("**Ảnh gốc**")
-            st.image(src, channels='BGR', use_container_width=True)
+            st.image(src, channels='BGR', width='stretch')
             st.caption(f"Kích thước: {src.shape[1]}x{src.shape[0]}")
         
         with col2:
             st.markdown(f"**Phát hiện**")
-            st.image(debug, channels='BGR', use_container_width=True)
+            st.image(debug, channels='BGR', width='stretch')
             st.caption(f"Phương pháp: {method_used}")
         
         with col3:
             st.markdown("**Kết quả Crop**")
-            st.image(cropped, channels='BGR', use_container_width=True)
+            st.image(cropped, channels='BGR', width='stretch')
             st.caption(f"Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
         
         # Download button
@@ -191,7 +206,7 @@ def main_loop():
                     data=buffer.tobytes(),
                     file_name="document_cropped.jpg",
                     mime="image/jpeg",
-                    use_container_width=True
+                    width='stretch'
                 )
         
         with col_dl3:
@@ -202,7 +217,7 @@ def main_loop():
                     data=buffer.tobytes(),
                     file_name="document_debug.jpg",
                     mime="image/jpeg",
-                    use_container_width=True
+                    width='stretch'
                 )
     
     # Add footer with info

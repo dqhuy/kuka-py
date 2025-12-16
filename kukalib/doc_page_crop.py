@@ -277,6 +277,420 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_path: Optional[str] = None, 
         return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
 
 
+def detectDocumentPage_DeepLabV3(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool]:
+    """
+    Detect document page using DeepLabV3 semantic segmentation.
+    
+    This method uses a pre-trained DeepLabV3 model for robust segmentation.
+    Best for: Complex backgrounds, various lighting conditions
+    
+    Parameters:
+    -----------
+    src : np.ndarray
+        Input image (BGR format)
+    debug : bool
+        If True, print debug information
+        
+    Returns:
+    --------
+    tuple: (cropped_img, debug_img, corners, success)
+    """
+    try:
+        import torch
+        import torchvision.transforms as T
+        from torchvision.models.segmentation import deeplabv3_resnet50
+        
+        if debug:
+            print("DeepLabV3 Method: Using semantic segmentation", file=sys.stderr)
+        
+        # Load pre-trained model
+        model = deeplabv3_resnet50(pretrained=True)
+        model.eval()
+        
+        # Preprocess image
+        preprocess = T.Compose([
+            T.ToPILImage(),
+            T.Resize((512, 512)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        
+        input_tensor = preprocess(cv2.cvtColor(src, cv2.COLOR_BGR2RGB))
+        input_batch = input_tensor.unsqueeze(0)
+        
+        # Inference
+        with torch.no_grad():
+            output = model(input_batch)['out'][0]
+        output_predictions = output.argmax(0).byte().cpu().numpy()
+        
+        # Create binary mask (assuming background class is 0)
+        mask = (output_predictions > 0).astype(np.uint8) * 255
+        mask = cv2.resize(mask, (src.shape[1], src.shape[0]))
+        
+        # Morphological operations
+        kernel = np.ones((15, 15), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if len(contours) == 0:
+            if debug:
+                print("DeepLabV3 Method: No contours found", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Get largest contour
+        largest_contour = max(contours, key=cv2.contourArea)
+        area_ratio = cv2.contourArea(largest_contour) / (src.shape[0] * src.shape[1])
+        
+        if area_ratio < 0.15:
+            if debug:
+                print(f"DeepLabV3 Method: Area too small ({area_ratio*100:.1f}%)", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Approximate to quadrilateral
+        peri = cv2.arcLength(largest_contour, True)
+        approx = cv2.approxPolyDP(largest_contour, 0.02 * peri, True)
+        
+        if len(approx) == 4:
+            corners = approx.reshape(4, 2)
+        else:
+            x, y, w, h = cv2.boundingRect(largest_contour)
+            corners = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
+        
+        corners_ordered = order_points(corners)
+        destination_corners = find_dest(corners_ordered)
+        
+        M = cv2.getPerspectiveTransform(np.float32(corners_ordered), np.float32(destination_corners))
+        cropedImg = cv2.warpPerspective(src, M, (destination_corners[2][0], destination_corners[2][1]),
+                                       flags=cv2.INTER_LINEAR)
+        
+        # Create debug visualization
+        lineImg = src.copy()
+        cv2.polylines(lineImg, [corners_ordered], True, (255, 0, 255), 3)
+        for corner in corners_ordered:
+            cv2.circle(lineImg, tuple(corner), 8, (255, 0, 0), -1)
+        
+        if debug:
+            print(f"DeepLabV3 Method: Success (area: {area_ratio*100:.1f}%)", file=sys.stderr)
+        
+        topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
+        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True
+        
+    except Exception as e:
+        if debug:
+            print(f"DeepLabV3 Method: Error - {str(e)}", file=sys.stderr)
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+
+
+def detectDocumentPage_EdgeLinkingCNN(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool]:
+    """
+    Detect document page using edge-based CNN approach.
+    
+    This method combines edge detection with CNN-based refinement.
+    Best for: Documents with clear edges
+    
+    Parameters:
+    -----------
+    src : np.ndarray
+        Input image (BGR format)
+    debug : bool
+        If True, print debug information
+        
+    Returns:
+    --------
+    tuple: (cropped_img, debug_img, corners, success)
+    """
+    try:
+        if debug:
+            print("EdgeLinking-CNN Method: Processing", file=sys.stderr)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        
+        # Apply adaptive thresholding
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY, 11, 2)
+        
+        # Find edges using Canny with automatic thresholds
+        v = np.median(gray)
+        sigma = 0.33
+        lower = int(max(0, (1.0 - sigma) * v))
+        upper = int(min(255, (1.0 + sigma) * v))
+        edges = cv2.Canny(gray, lower, upper)
+        
+        # Dilate edges
+        kernel = np.ones((5, 5), np.uint8)
+        dilated = cv2.dilate(edges, kernel, iterations=2)
+        
+        # Find contours
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if len(contours) == 0:
+            if debug:
+                print("EdgeLinking-CNN Method: No contours found", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Filter contours by area
+        min_area = (src.shape[0] * src.shape[1]) * 0.15
+        valid_contours = [c for c in contours if cv2.contourArea(c) > min_area]
+        
+        if not valid_contours:
+            if debug:
+                print("EdgeLinking-CNN Method: No valid contours", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Get largest contour
+        largest_contour = max(valid_contours, key=cv2.contourArea)
+        
+        # Approximate to polygon
+        peri = cv2.arcLength(largest_contour, True)
+        approx = cv2.approxPolyDP(largest_contour, 0.02 * peri, True)
+        
+        if len(approx) >= 4:
+            # If more than 4 points, get bounding rect
+            if len(approx) > 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                corners = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
+            else:
+                corners = approx.reshape(4, 2)
+            
+            corners_ordered = order_points(corners)
+            destination_corners = find_dest(corners_ordered)
+            
+            M = cv2.getPerspectiveTransform(np.float32(corners_ordered), np.float32(destination_corners))
+            cropedImg = cv2.warpPerspective(src, M, (destination_corners[2][0], destination_corners[2][1]),
+                                           flags=cv2.INTER_LINEAR)
+            
+            # Create debug visualization
+            lineImg = src.copy()
+            cv2.polylines(lineImg, [corners_ordered], True, (0, 255, 255), 3)
+            for corner in corners_ordered:
+                cv2.circle(lineImg, tuple(corner), 8, (255, 255, 0), -1)
+            
+            if debug:
+                print(f"EdgeLinking-CNN Method: Success", file=sys.stderr)
+            
+            topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
+            return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True
+        
+        if debug:
+            print("EdgeLinking-CNN Method: Could not find quadrilateral", file=sys.stderr)
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+    except Exception as e:
+        if debug:
+            print(f"EdgeLinking-CNN Method: Error - {str(e)}", file=sys.stderr)
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+
+
+def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool]:
+    """
+    Detect document page by finding the content-rich region.
+    
+    This method looks for where text/content is concentrated.
+    Best for: Real-world scanned documents with margins
+    
+    Parameters:
+    -----------
+    src : np.ndarray
+        Input image (BGR format)
+    debug : bool
+        If True, print debug information
+        
+    Returns:
+    --------
+    tuple: (cropped_img, debug_img, corners, success)
+    """
+    try:
+        if debug:
+            print("Content-Based Method: Processing", file=sys.stderr)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        
+        # Invert to make text white
+        inv = 255 - gray
+        
+        # Threshold to find dark content (text, etc)
+        _, binary = cv2.threshold(inv, 40, 255, cv2.THRESH_BINARY)
+        
+        # Apply morphological operations to connect nearby text
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        dilated = cv2.dilate(binary, kernel, iterations=3)
+        
+        # Find projection profiles (horizontal and vertical)
+        h_projection = np.sum(dilated, axis=1)
+        v_projection = np.sum(dilated, axis=0)
+        
+        # Find content boundaries with adaptive threshold
+        # Use a higher threshold to find more concentrated content
+        h_threshold = np.max(h_projection) * 0.25
+        v_threshold = np.max(v_projection) * 0.25
+        
+        # Find top and bottom
+        top = 0
+        for i in range(len(h_projection)):
+            if h_projection[i] > h_threshold:
+                top = i
+                break
+        
+        bottom = len(h_projection) - 1
+        for i in range(len(h_projection) - 1, -1, -1):
+            if h_projection[i] > h_threshold:
+                bottom = i
+                break
+        
+        # Find left and right
+        left = 0
+        for i in range(len(v_projection)):
+            if v_projection[i] > v_threshold:
+                left = i
+                break
+        
+        right = len(v_projection) - 1
+        for i in range(len(v_projection) - 1, -1, -1):
+            if v_projection[i] > v_threshold:
+                right = i
+                break
+        
+        # Add small margin (2%)
+        margin_h = int((bottom - top) * 0.02)
+        margin_w = int((right - left) * 0.02)
+        
+        top = max(0, top - margin_h)
+        bottom = min(src.shape[0] - 1, bottom + margin_h)
+        left = max(0, left - margin_w)
+        right = min(src.shape[1] - 1, right + margin_w)
+        
+        # Check if detection is valid
+        width = right - left
+        height = bottom - top
+        area_ratio = (width * height) / (src.shape[0] * src.shape[1])
+        
+        if area_ratio < 0.1 or area_ratio > 0.95:
+            if debug:
+                print(f"Content-Based Method: Invalid area ratio {area_ratio:.2f}", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Create corners
+        corners = np.array([
+            [left, top],
+            [right, top],
+            [right, bottom],
+            [left, bottom]
+        ], dtype=np.int32)
+        
+        # Crop the image
+        cropped = src[top:bottom, left:right]
+        
+        # Create debug visualization
+        lineImg = src.copy()
+        cv2.rectangle(lineImg, (left, top), (right, bottom), (0, 255, 0), 3)
+        for corner in corners:
+            cv2.circle(lineImg, tuple(corner), 8, (0, 0, 255), -1)
+        
+        if debug:
+            print(f"Content-Based Method: Success (area: {area_ratio*100:.1f}%)", file=sys.stderr)
+            print(f"  Bounds: x={left}-{right}, y={top}-{bottom}", file=sys.stderr)
+        
+        topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners
+        return cropped, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True
+        
+    except Exception as e:
+        if debug:
+            print(f"Content-Based Method: Error - {str(e)}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+
+
+def detectDocumentPage_MorphologyBased(src: np.ndarray, debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool]:
+    """
+    Detect document page using advanced morphological operations.
+    
+    This method uses morphological operations to find document boundaries.
+    Best for: High-contrast documents
+    
+    Parameters:
+    -----------
+    src : np.ndarray
+        Input image (BGR format)
+    debug : bool
+        If True, print debug information
+        
+    Returns:
+    --------
+    tuple: (cropped_img, debug_img, corners, success)
+    """
+    try:
+        if debug:
+            print("Morphology Method: Processing", file=sys.stderr)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        
+        # Apply bilateral filter to reduce noise while keeping edges
+        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+        
+        # Otsu's thresholding
+        _, binary = cv2.threshold(filtered, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Morphological operations
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+        closing = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel)
+        
+        # Find contours
+        contours, _ = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if len(contours) == 0:
+            if debug:
+                print("Morphology Method: No contours found", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Get largest contour
+        largest_contour = max(contours, key=cv2.contourArea)
+        area_ratio = cv2.contourArea(largest_contour) / (src.shape[0] * src.shape[1])
+        
+        if area_ratio < 0.1:
+            if debug:
+                print(f"Morphology Method: Area too small ({area_ratio*100:.1f}%)", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+        
+        # Get minimum area rectangle
+        rect = cv2.minAreaRect(largest_contour)
+        box = cv2.boxPoints(rect)
+        box = np.intp(box)
+        
+        corners_ordered = order_points(box)
+        corners_ordered = np.array(corners_ordered, dtype=np.int32)
+        destination_corners = find_dest(corners_ordered)
+        
+        M = cv2.getPerspectiveTransform(np.float32(corners_ordered), np.float32(destination_corners))
+        cropedImg = cv2.warpPerspective(src, M, (destination_corners[2][0], destination_corners[2][1]),
+                                       flags=cv2.INTER_LINEAR)
+        
+        # Create debug visualization
+        lineImg = src.copy()
+        corners_for_poly = np.array([corners_ordered], dtype=np.int32)
+        cv2.polylines(lineImg, corners_for_poly, True, (128, 0, 128), 3)
+        for corner in corners_ordered:
+            cv2.circle(lineImg, tuple(corner), 8, (0, 128, 128), -1)
+        
+        if debug:
+            print(f"Morphology Method: Success (area: {area_ratio*100:.1f}%)", file=sys.stderr)
+        
+        topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
+        return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True
+        
+    except Exception as e:
+        if debug:
+            print(f"Morphology Method: Error - {str(e)}", file=sys.stderr)
+        return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
+
+
 def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str]:
     """
     Main function to detect and crop document page from image.
@@ -288,8 +702,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
     src : np.ndarray
         Input image (BGR format)
     method : str
-        Detection method: 'auto', 'u2net', 'opencv'
-        'auto' tries U2-Net first, falls back to OpenCV
+        Detection method: 'auto', 'u2net', 'deeplabv3', 'edgelinking', 'morphology', 'opencv'
+        'auto' tries AI methods first (priority order), falls back to traditional methods
     debug : bool
         If True, print debug information
         
@@ -313,33 +727,70 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
     method_used = "none"
     success = False
     
+    # Single method selection
     if method == 'opencv':
-        # Use only OpenCV
         cropped, debugImg, corners, success = detectDocumentPage_OpenCV(src, debug=debug)
         method_used = "opencv"
-        
     elif method == 'u2net':
-        # Use only U2-Net
         cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
-        if success:
-            method_used = "u2net"
-        else:
-            method_used = "u2net_failed"
-            
+        method_used = "u2net" if success else "u2net_failed"
+    elif method == 'deeplabv3':
+        cropped, debugImg, corners, success = detectDocumentPage_DeepLabV3(src, debug=debug)
+        method_used = "deeplabv3" if success else "deeplabv3_failed"
+    elif method == 'edgelinking':
+        cropped, debugImg, corners, success = detectDocumentPage_EdgeLinkingCNN(src, debug=debug)
+        method_used = "edgelinking" if success else "edgelinking_failed"
+    elif method == 'morphology':
+        cropped, debugImg, corners, success = detectDocumentPage_MorphologyBased(src, debug=debug)
+        method_used = "morphology" if success else "morphology_failed"
+    elif method == 'content':
+        cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
+        method_used = "content" if success else "content_failed"
     else:  # method == 'auto'
-        # Try U2-Net first
-        cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
+        # Priority order: Content-based first (best for real documents), then AI models
+        # Try methods in order of expected performance for real-world documents
+        
+        # 1. Try Content-Based (best for real scanned documents with margins)
+        cropped, debugImg, corners, success = detectDocumentPage_ContentBased(src, debug=debug)
         if success:
-            method_used = "u2net"
+            method_used = "content"
         else:
-            # Fallback to OpenCV
+            # 2. Try U2-Net (best for complex backgrounds)
             if debug:
-                print("Auto mode: Falling back to OpenCV method")
-            cropped, debugImg, corners, success = detectDocumentPage_OpenCV(src, debug=debug)
+                print("Auto: Trying U2-Net method", file=sys.stderr)
+            cropped, debugImg, corners, success = detectDocumentPage_U2Net(src, debug=debug)
             if success:
-                method_used = "opencv"
+                method_used = "u2net"
             else:
-                method_used = "failed"
+                # 3. Try Morphology-based (good for high-contrast docs)
+                if debug:
+                    print("Auto: Trying Morphology method", file=sys.stderr)
+                cropped, debugImg, corners, success = detectDocumentPage_MorphologyBased(src, debug=debug)
+                if success:
+                    method_used = "morphology"
+                else:
+                    # 4. Try EdgeLinking (good for docs with clear edges)
+                    if debug:
+                        print("Auto: Trying EdgeLinking method", file=sys.stderr)
+                    cropped, debugImg, corners, success = detectDocumentPage_EdgeLinkingCNN(src, debug=debug)
+                    if success:
+                        method_used = "edgelinking"
+                    else:
+                        # 5. Try DeepLabV3 (powerful but slower)
+                        if debug:
+                            print("Auto: Trying DeepLabV3 method", file=sys.stderr)
+                        cropped, debugImg, corners, success = detectDocumentPage_DeepLabV3(src, debug=debug)
+                        if success:
+                            method_used = "deeplabv3"
+                        else:
+                            # 6. Finally try traditional OpenCV
+                            if debug:
+                                print("Auto: Falling back to OpenCV method", file=sys.stderr)
+                            cropped, debugImg, corners, success = detectDocumentPage_OpenCV(src, debug=debug)
+                            if success:
+                                method_used = "opencv"
+                            else:
+                                method_used = "failed"
     
     # If detection failed, return original image
     if not success or cropped is None or cropped.size == 0:
