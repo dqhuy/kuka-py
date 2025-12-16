@@ -1,0 +1,14 @@
+# Optional dependencies for enhanced document page detection
+# Install with: pip install -r requirements-optional.txt
+
+# U2-Net based AI detection (recommended for complex backgrounds)
+# This provides much better accuracy for document detection with complex backgrounds
+rembg>=2.0.50
+
+# Alternative: Install torch and torchvision separately for better control
+# torch>=2.0.0
+# torchvision>=0.15.0
+# u2net-fast>=0.1.0
+
+# For GPU acceleration (optional, but recommended if available)
+# Install CUDA-enabled PyTorch from: https://pytorch.org/get-started/locally/
