@@ -157,6 +157,7 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_path: Optional[str] = None, 
     Detect document page using U2-Net AI model.
     
     This method uses deep learning for robust detection even with complex backgrounds.
+    Uses standalone U2-Net implementation for better compatibility.
     Best for: Complex backgrounds, poor lighting, cluttered scenes
     
     Parameters:
@@ -164,9 +165,9 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_path: Optional[str] = None, 
     src : np.ndarray
         Input image (BGR format)
     model_path : str, optional
-        Path to U2Net model weights. If None, uses default or falls back.
+        Path to U2Net model weights. If None, uses default in kukalib/models/
     debug : bool
-        If True, print debug information
+        If True, print extensive debug information
         
     Returns:
     --------
@@ -176,105 +177,176 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_path: Optional[str] = None, 
         corners: Tuple of (tl, tr, br, bl) corner points
         success: Boolean indicating if detection succeeded
     """
+    if debug:
+        print("\n" + "="*70, file=sys.stderr)
+        print("U2-Net Method: Starting document detection", file=sys.stderr)
+        print("="*70, file=sys.stderr)
+        print(f"Input image shape: {src.shape}", file=sys.stderr)
+    
     try:
-        # Try to import rembg (which uses U2-Net internally)
-        from rembg import remove, new_session
+        # Import our custom U2-Net implementation
+        from kukalib.u2net_model import run_u2net_inference
         
         if debug:
-            print("U2-Net Method: Using rembg for background removal")
+            print("✅ U2-Net module imported successfully", file=sys.stderr)
         
-        # Remove background
-        output = remove(src)
+        # Run U2-Net inference to get mask
+        mask = run_u2net_inference(src, debug=debug)
         
-        # Convert to grayscale and threshold to get mask
-        if len(output.shape) == 3 and output.shape[2] == 4:
-            # Has alpha channel
-            mask = output[:, :, 3]
-        else:
-            # Convert to grayscale
-            gray = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
-            mask = gray
+        if mask is None:
+            if debug:
+                print("❌ U2-Net inference failed", file=sys.stderr)
+            return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
         
-        # Threshold to get binary mask
-        _, mask_binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+        if debug:
+            print(f"✅ Got mask from U2-Net: {mask.shape}", file=sys.stderr)
+            print(f"   Mask value range: [{mask.min()}, {mask.max()}]", file=sys.stderr)
+            print(f"   Non-zero pixels: {np.count_nonzero(mask)} ({np.count_nonzero(mask)/mask.size*100:.1f}%)", file=sys.stderr)
         
-        # Morphological operations to clean mask
-        kernel = np.ones((9, 9), np.uint8)
-        mask_binary = cv2.morphologyEx(mask_binary, cv2.MORPH_CLOSE, kernel)
-        mask_binary = cv2.morphologyEx(mask_binary, cv2.MORPH_OPEN, kernel)
+        # Use Otsu's thresholding for better adaptive threshold
+        _, mask_binary = cv2.threshold(mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        if debug:
+            print(f"✅ Binary mask created (Otsu's method)", file=sys.stderr)
+            print(f"   White pixels: {np.count_nonzero(mask_binary)} ({np.count_nonzero(mask_binary)/mask_binary.size*100:.1f}%)", file=sys.stderr)
+        
+        # Morphological operations to clean mask - more aggressive
+        kernel_large = np.ones((25, 25), np.uint8)
+        kernel_small = np.ones((15, 15), np.uint8)
+        
+        # Close small gaps
+        mask_cleaned = cv2.morphologyEx(mask_binary, cv2.MORPH_CLOSE, kernel_large, iterations=3)
+        # Remove small noise
+        mask_cleaned = cv2.morphologyEx(mask_cleaned, cv2.MORPH_OPEN, kernel_small, iterations=2)
+        # Dilate slightly to include edges
+        mask_cleaned = cv2.dilate(mask_cleaned, kernel_small, iterations=1)
+        
+        if debug:
+            print(f"✅ Morphological operations applied", file=sys.stderr)
+            print(f"   Cleaned mask white pixels: {np.count_nonzero(mask_cleaned)} ({np.count_nonzero(mask_cleaned)/mask_cleaned.size*100:.1f}%)", file=sys.stderr)
         
         # Find contours in mask
-        contours, _ = cv2.findContours(mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask_cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if debug:
+            print(f"✅ Found {len(contours)} contours", file=sys.stderr)
         
         if len(contours) == 0:
             if debug:
-                print("U2-Net Method: No contours found in mask")
+                print("❌ No contours found in mask", file=sys.stderr)
             return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
         
         # Get largest contour
         largest_contour = max(contours, key=cv2.contourArea)
+        contour_area = cv2.contourArea(largest_contour)
+        
+        if debug:
+            print(f"✅ Largest contour area: {contour_area} pixels", file=sys.stderr)
         
         # Get bounding rectangle
         x, y, w, h = cv2.boundingRect(largest_contour)
         
-        # Check if area is significant (at least 20% of image)
+        if debug:
+            print(f"✅ Bounding rectangle: x={x}, y={y}, w={w}, h={h}", file=sys.stderr)
+        
+        # Check if area is significant (at least 10% of image, more lenient)
         area_ratio = (w * h) / (src.shape[0] * src.shape[1])
-        if area_ratio < 0.2:
+        if debug:
+            print(f"   Area ratio: {area_ratio*100:.2f}% of image", file=sys.stderr)
+        
+        if area_ratio < 0.10:
             if debug:
-                print(f"U2-Net Method: Detected area too small ({area_ratio*100:.1f}%)")
+                print(f"❌ Detected area too small (< 10%): {area_ratio*100:.1f}%", file=sys.stderr)
             return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
         
-        # Approximate contour to quadrilateral
+        # Try multiple approximation epsilons to find 4-point contour
         peri = cv2.arcLength(largest_contour, True)
-        approx = cv2.approxPolyDP(largest_contour, 0.02 * peri, True)
         
-        # If we got 4 points, use them; otherwise use bounding rect
+        approx = None
+        for epsilon_factor in [0.01, 0.02, 0.03, 0.04, 0.05]:
+            test_approx = cv2.approxPolyDP(largest_contour, epsilon_factor * peri, True)
+            if len(test_approx) == 4:
+                approx = test_approx
+                if debug:
+                    print(f"✅ Found 4-point approximation with epsilon={epsilon_factor}", file=sys.stderr)
+                break
+        
+        if approx is None:
+            approx = cv2.approxPolyDP(largest_contour, 0.02 * peri, True)
+            if debug:
+                print(f"✅ Contour approximation: {len(approx)} points", file=sys.stderr)
+        
+        # If we got 4 points, use them; otherwise use minimum area rectangle
         if len(approx) == 4:
             corners = approx.reshape(4, 2)
+            if debug:
+                print(f"   Using 4-point approximation", file=sys.stderr)
         else:
-            # Use bounding rectangle corners
-            corners = np.array([
-                [x, y],
-                [x + w, y],
-                [x + w, y + h],
-                [x, y + h]
-            ])
+            # Use minimum area rectangle for better fit
+            rect = cv2.minAreaRect(largest_contour)
+            box = cv2.boxPoints(rect)
+            corners = np.intp(box)
+            if debug:
+                print(f"   Using minimum area rectangle", file=sys.stderr)
         
         # Order points correctly
         corners_ordered = order_points(corners)
         
+        if debug:
+            print(f"✅ Corners ordered:", file=sys.stderr)
+            print(f"   Top-left: {corners_ordered[0]}", file=sys.stderr)
+            print(f"   Top-right: {corners_ordered[1]}", file=sys.stderr)
+            print(f"   Bottom-right: {corners_ordered[2]}", file=sys.stderr)
+            print(f"   Bottom-left: {corners_ordered[3]}", file=sys.stderr)
+        
         # Apply perspective transform
         destination_corners = find_dest(corners_ordered)
+        
+        if debug:
+            print(f"✅ Destination corners calculated: {destination_corners[2]}", file=sys.stderr)
+        
         M = cv2.getPerspectiveTransform(np.float32(corners_ordered), np.float32(destination_corners))
         cropedImg = cv2.warpPerspective(src, M,
                                        (destination_corners[2][0], destination_corners[2][1]),
                                        flags=cv2.INTER_LINEAR)
         
+        if debug:
+            print(f"✅ Perspective transform applied", file=sys.stderr)
+            print(f"   Output image shape: {cropedImg.shape}", file=sys.stderr)
+        
         # Create debug visualization
         lineImg = src.copy()
-        cv2.polylines(lineImg, [corners_ordered], True, (0, 255, 0), 3)
-        for corner in corners_ordered:
-            cv2.circle(lineImg, tuple(corner), 8, (0, 0, 255), -1)
+        corners_for_poly = np.array([corners_ordered], dtype=np.int32)
+        cv2.polylines(lineImg, corners_for_poly, True, (0, 255, 0), 3)
+        for i, corner in enumerate(corners_ordered):
+            corner_int = tuple(map(int, corner))
+            cv2.circle(lineImg, corner_int, 10, (0, 0, 255), -1)
+            cv2.putText(lineImg, str(i+1), corner_int, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         
         # Draw mask overlay
-        mask_color = cv2.applyColorMap(mask_binary, cv2.COLORMAP_JET)
-        lineImg = cv2.addWeighted(lineImg, 0.7, mask_color, 0.3, 0)
+        mask_color = cv2.applyColorMap(mask_cleaned, cv2.COLORMAP_JET)
+        lineImg = cv2.addWeighted(lineImg, 0.6, mask_color, 0.4, 0)
         
         if debug:
-            print(f"U2-Net Method: Successfully detected document")
-            print(f"Document area: {area_ratio*100:.1f}% of image")
-            print(f"Corners: {len(approx)} points approximated")
+            print(f"✅ Debug visualization created", file=sys.stderr)
+            print(f"\n{'='*70}", file=sys.stderr)
+            print(f"U2-Net Method: SUCCESS", file=sys.stderr)
+            print(f"Document area: {area_ratio*100:.2f}% of original image", file=sys.stderr)
+            print(f"Cropped size: {cropedImg.shape[1]}x{cropedImg.shape[0]}", file=sys.stderr)
+            print(f"{'='*70}\n", file=sys.stderr)
         
         topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners_ordered
         return cropedImg, lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True
         
-    except ImportError:
+    except ImportError as e:
         if debug:
-            print("U2-Net Method: rembg not installed, falling back to OpenCV")
+            print(f"❌ Import error: {e}", file=sys.stderr)
+            print("   Make sure onnxruntime is installed: pip install onnxruntime", file=sys.stderr)
         return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
     except Exception as e:
         if debug:
-            print(f"U2-Net Method: Error occurred: {str(e)}")
+            print(f"❌ U2-Net Method: Error occurred: {str(e)}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
         return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False
 
 

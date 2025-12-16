@@ -6,6 +6,4 @@ scikit-image
 streamlit
 PyMuPDF
 Pillow
-torch>=2.0.0
-torchvision>=0.15.0
-rembg>=2.0.50
+onnxruntime>=1.15.0
