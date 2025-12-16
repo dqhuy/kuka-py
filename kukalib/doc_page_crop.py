@@ -302,9 +302,10 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
         method_used: String indicating which method was used
     """
     if debug:
-        print(f"=== Document Page Detection ===")
-        print(f"Input image size: {src.shape[1]}x{src.shape[0]}")
-        print(f"Requested method: {method}")
+        import sys
+        print(f"=== Document Page Detection ===", file=sys.stderr)
+        print(f"Input image size: {src.shape[1]}x{src.shape[0]}", file=sys.stderr)
+        print(f"Requested method: {method}", file=sys.stderr)
     
     cropped = None
     debugImg = None
@@ -350,9 +351,10 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
         method_used = "failed"
     
     if debug:
-        print(f"Final method used: {method_used}")
-        print(f"Output image size: {cropped.shape[1]}x{cropped.shape[0]}")
-        print("=== Detection Complete ===\n")
+        import sys
+        print(f"Final method used: {method_used}", file=sys.stderr)
+        print(f"Output image size: {cropped.shape[1]}x{cropped.shape[0]}", file=sys.stderr)
+        print("=== Detection Complete ===\n", file=sys.stderr)
     
     return cropped, debugImg, corners, method_used
 
@@ -360,6 +362,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', debug: bool
 def convertPdfToImages(pdf_path: str, output_dir: Optional[str] = None, dpi: int = 200) -> List[np.ndarray]:
     """
     Convert PDF file to list of images (one per page).
+    
+    Requires PyMuPDF (fitz) to be installed: pip install PyMuPDF
     
     Parameters:
     -----------
@@ -372,7 +376,8 @@ def convertPdfToImages(pdf_path: str, output_dir: Optional[str] = None, dpi: int
         
     Returns:
     --------
-    list: List of numpy arrays (images in BGR format)
+    list: List of numpy arrays (images in BGR format). 
+          Empty list if PyMuPDF is not installed or conversion fails.
     """
     try:
         import fitz  # PyMuPDF

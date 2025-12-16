@@ -30,7 +30,13 @@ def test_basic_detection():
         print(f"\nError: Sample directory not found: {sample_dir}")
         return False
     
-    samples = [f for f in os.listdir(sample_dir) if f.endswith('.jpg') and not ('cropped' in f or 'debug' in f)]
+    def is_input_sample(filename):
+        """Filter function to identify input sample images"""
+        return (filename.endswith('.jpg') and 
+                'cropped' not in filename and 
+                'debug' not in filename)
+    
+    samples = [f for f in os.listdir(sample_dir) if is_input_sample(f)]
     
     if not samples:
         print(f"\nError: No sample images found in {sample_dir}")

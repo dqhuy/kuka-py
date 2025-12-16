@@ -30,14 +30,20 @@ def main_loop():
     - **U2-Net**: AI-based detection (chính xác hơn với background phức tạp) - Yêu cầu cài đặt thêm `rembg`
     """)
     
-    # Method selection
-    col_method, col_empty = st.columns([1, 2])
+    # Method selection and debug option
+    col_method, col_debug, col_empty = st.columns([1, 1, 1])
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp phát hiện:",
             ["auto", "opencv", "u2net"],
             index=0,
             help="Auto: Tự động chọn phương pháp tốt nhất. OpenCV: Nhanh nhưng cần background rõ ràng. U2-Net: Chính xác với background phức tạp."
+        )
+    with col_debug:
+        show_debug = st.checkbox(
+            "Debug mode",
+            value=False,
+            help="Hiển thị thông tin debug chi tiết trong console"
         )
     
     # Show example images
@@ -97,7 +103,7 @@ def main_loop():
                     cropped, debug, corners, method_used = detectAndCropDocumentPage(
                         img, 
                         method=detection_method, 
-                        debug=False
+                        debug=show_debug
                     )
                 
                 # Display results
@@ -150,7 +156,7 @@ def main_loop():
             cropped, debug, corners, method_used = detectAndCropDocumentPage(
                 src, 
                 method=detection_method, 
-                debug=False
+                debug=show_debug
             )
         
         # Show results
