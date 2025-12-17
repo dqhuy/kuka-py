@@ -38,14 +38,14 @@ def main_loop():
     **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content.
     """)
     
-    # Method selection, model selection, and debug option
-    col_method, col_model, col_debug = st.columns([1, 1, 1])
+    # Method selection, model selection, export option, and debug option
+    col_method, col_model, col_export, col_debug = st.columns([1, 1, 1, 1])
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp:",
-            ["auto", "u2net", "deeplabv3", "content"],
+            ["auto", "u2net", "yolo", "deeplabv3", "content"],
             index=0,
-            help="Auto: Ưu tiên U2-Net (chính xác nhất)"
+            help="Auto: U2-Net → YOLO → DeepLabV3 → Content"
         )
     with col_model:
         u2net_model = st.selectbox(
@@ -53,6 +53,12 @@ def main_loop():
             ["u2netp", "u2net"],
             index=0,  # Default to u2netp (lightweight) - V3 default
             help="u2netp: 4.4MB (mặc định, nhanh), u2net: 176MB (chính xác cao hơn)"
+        )
+    with col_export:
+        export_training = st.checkbox(
+            "📦 Export Training Data",
+            value=False,
+            help="Export ảnh, mask, và bbox cho việc training"
         )
     with col_debug:
         show_debug = st.checkbox(
@@ -236,6 +242,86 @@ def main_loop():
                     file_name="document_debug.jpg",
                     mime="image/jpeg"
                 )
+        
+        # Training export section
+        if export_training and corners is not None:
+            st.markdown("---")
+            st.subheader("📦 Export Training Data")
+            
+            try:
+                from kukalib.training_export import TrainingDataExporter
+                import json
+                import zipfile
+                import io
+                
+                # Create exporter
+                exporter = TrainingDataExporter("temp_export")
+                
+                # Generate mask from debug image (approximate)
+                # In real implementation, you'd get the actual mask from detection
+                gray = cv2.cvtColor(debug, cv2.COLOR_BGR2GRAY)
+                _, mask = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY)
+                
+                # Calculate bbox from corners
+                if corners:
+                    x_coords = [c[0] for c in corners]
+                    y_coords = [c[1] for c in corners]
+                    x = min(x_coords)
+                    y = min(y_coords)
+                    w = max(x_coords) - x
+                    h = max(y_coords) - y
+                    bbox = [int(x), int(y), int(w), int(h)]
+                else:
+                    bbox = [0, 0, src.shape[1], src.shape[0]]
+                
+                # Export sample
+                result = exporter.export_sample(
+                    src, mask, bbox, 
+                    "document",
+                    confidence=confidence
+                )
+                
+                # Save annotations
+                ann_file = exporter.save_annotations()
+                
+                # Create ZIP file with all training data
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                    # Add image
+                    is_success, img_buffer = cv2.imencode(".jpg", src)
+                    if is_success:
+                        zip_file.writestr("image.jpg", img_buffer.tobytes())
+                    
+                    # Add mask
+                    is_success, mask_buffer = cv2.imencode(".png", mask)
+                    if is_success:
+                        zip_file.writestr("mask.png", mask_buffer.tobytes())
+                    
+                    # Add annotations
+                    if os.path.exists(ann_file):
+                        with open(ann_file, 'r') as f:
+                            zip_file.writestr("annotations.json", f.read())
+                
+                zip_buffer.seek(0)
+                
+                st.success("✅ Training data đã chuẩn bị")
+                st.download_button(
+                    label="⬇️ Tải về Training Data (ZIP)",
+                    data=zip_buffer,
+                    file_name="training_data.zip",
+                    mime="application/zip"
+                )
+                
+                # Show stats
+                stats = exporter.get_stats()
+                st.json({
+                    "confidence": confidence,
+                    "bbox": bbox,
+                    "image_size": f"{src.shape[1]}x{src.shape[0]}"
+                })
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi khi export training data: {e}")
     
     # Add footer with info
     st.markdown("---")
