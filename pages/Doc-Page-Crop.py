@@ -50,12 +50,24 @@ def main_loop():
             help="u2net: AI-based (KHUYẾN NGHỊ), yolo: YOLOv11 fast detection, content: Traditional method"
         )
     with col_model:
-        u2net_model = st.selectbox(
-            "U2-Net Model:",
-            ["u2netp", "u2net"],
-            index=0,  # Default to u2netp (lightweight) - V3 default
-            help="u2netp: 4.4MB (mặc định, nhanh), u2net: 176MB (chính xác cao hơn)"
-        )
+        # Show model selector based on detection method
+        if detection_method == "u2net":
+            model_name = st.selectbox(
+                "U2-Net Model:",
+                ["u2netp", "u2net"],
+                index=0,  # Default to u2netp (lightweight)
+                help="u2netp: 4.4MB (mặc định, nhanh), u2net: 176MB (chính xác cao hơn)"
+            )
+        elif detection_method == "yolo":
+            model_name = st.selectbox(
+                "YOLO Model:",
+                ["yolov11n-seg"],
+                index=0,  # Default to yolov11n-seg
+                help="yolov11n-seg: 11.2MB ONNX model (nhanh, chính xác). Thêm models khác vào kukalib/models/"
+            )
+        else:
+            model_name = "content"  # No model selection for content method
+            st.empty()  # Empty column for consistent layout
     with col_export:
         export_training = st.checkbox(
             "📦 Export Training Data",
@@ -126,7 +138,7 @@ def main_loop():
                     cropped, debug, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
                         img, 
                         method=detection_method,
-                        model_name=u2net_model,
+                        model_name=model_name,
                         debug=show_debug
                     )
                 
@@ -195,7 +207,7 @@ def main_loop():
             cropped, debug, corners, method_used, time_ms, confidence = detectAndCropDocumentPage(
                 src, 
                 method=detection_method,
-                model_name=u2net_model,
+                model_name=model_name,
                 debug=show_debug
             )
         

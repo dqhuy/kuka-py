@@ -745,8 +745,9 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     elif method == 'yolo':
         # Try YOLO detection
         from kukalib.yolo_detector import detectDocumentPage_YOLO
-        # Use default YOLO model (yolov11n-seg.pt)
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.pt', debug=debug)
+        # Use YOLO model - default to ONNX format for speed
+        yolo_model = f"{model_name}.onnx" if not model_name.endswith('.onnx') else model_name
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, debug=debug)
         method_used = "yolo" if success else "yolo_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)

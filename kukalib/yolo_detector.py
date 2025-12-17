@@ -26,7 +26,7 @@ def check_yolo_available() -> bool:
 
 
 def detectDocumentPage_YOLO(src: np.ndarray, 
-                           model_name: str = 'yolov11n-seg.pt', 
+                           model_name: str = 'yolov11n-seg.onnx', 
                            confidence_threshold: float = 0.5,
                            debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
@@ -46,8 +46,8 @@ def detectDocumentPage_YOLO(src: np.ndarray,
     src : np.ndarray
         Input image (BGR format)
     model_name : str
-        YOLO model name: 'yolov8n-seg' (nano), 'yolov8s-seg' (small), etc.
-        Or path to custom trained model (.pt or .onnx)
+        YOLO model name: 'yolov11n-seg.onnx' (nano, default), 'yolov8s-seg.onnx' (small), etc.
+        Or path to custom trained model (.onnx format preferred for speed)
     confidence_threshold : float
         Minimum confidence for detection (default: 0.5)
     debug : bool
