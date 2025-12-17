@@ -74,13 +74,13 @@ def main_loop():
     col_ex1, col_ex2, col_ex3 = st.columns(3)
     with col_ex1:
         if os.path.exists('docs/samples/input/sample1_simple_document.jpg'):
-            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc', width=None)
+            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc')
     with col_ex2:
         if os.path.exists('docs/samples/output/sample1_simple_document_debug.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện', width=None)
+            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện')
     with col_ex3:
         if os.path.exists('docs/samples/output/sample1_simple_document_cropped.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả', width=None)
+            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả')
     
     st.markdown("---")
     
@@ -135,7 +135,7 @@ def main_loop():
                 
                 with col1:
                     st.markdown("**Ảnh gốc**")
-                    st.image(img, channels='BGR', width=None)
+                    st.image(img, channels='BGR')
                     st.caption(f"Kích thước: {img.shape[1]}x{img.shape[0]}")
                     # Download button for original image
                     is_success_orig, buffer_orig = cv2.imencode(".jpg", img)
@@ -150,13 +150,13 @@ def main_loop():
                 
                 with col2:
                     st.markdown(f"**Phát hiện** ({method_used})")
-                    st.image(debug, channels='BGR', width=None)
+                    st.image(debug, channels='BGR')
                     st.caption(f"⏱️ {time_ms:.1f}ms | 📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
                     st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
                 
                 with col3:
                     st.markdown("**Kết quả**")
-                    st.image(cropped, channels='BGR', width=None)
+                    st.image(cropped, channels='BGR')
                     st.caption(f"Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
                     
                     # Download button for cropped image
@@ -206,19 +206,19 @@ def main_loop():
         
         with col1:
             st.markdown("**Ảnh gốc**")
-            st.image(src, channels='BGR', width=None)
+            st.image(src, channels='BGR')
             st.caption(f"📏 Kích thước: {src.shape[1]}x{src.shape[0]}")
         
         with col2:
             st.markdown(f"**Phát hiện**")
-            st.image(debug, channels='BGR', width=None)
+            st.image(debug, channels='BGR')
             st.caption(f"🔧 Phương pháp: {method_used}")
             st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
             st.caption(f"📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
         
         with col3:
             st.markdown("**Kết quả Crop**")
-            st.image(cropped, channels='BGR', width=None)
+            st.image(cropped, channels='BGR')
             st.caption(f"📏 Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
         
         # Download button
