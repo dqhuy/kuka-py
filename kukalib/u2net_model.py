@@ -177,7 +177,7 @@ def postprocess_mask(mask: np.ndarray, original_shape: Tuple[int, int], debug=Fa
     return mask_resized
 
 
-def run_u2net_inference(image: np.ndarray, model_name='u2net', debug=False) -> Optional[np.ndarray]:
+def run_u2net_inference(image: np.ndarray, model_name='u2net', debug=False, source_path: Optional[str] = None) -> Optional[np.ndarray]:
     """Run U2-Net inference on image
     
     Parameters:
@@ -192,6 +192,8 @@ def run_u2net_inference(image: np.ndarray, model_name='u2net', debug=False) -> O
     if debug:
         print("="*60)
         print(f"U2-Net Inference Starting (model: {model_name})")
+        if source_path:
+            print(f"Processing file: {source_path}")
         print("="*60)
     
     # Load model

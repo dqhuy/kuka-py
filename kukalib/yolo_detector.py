@@ -28,7 +28,8 @@ def check_yolo_available() -> bool:
 def detectDocumentPage_YOLO(src: np.ndarray, 
                            model_name: str = 'yolov11s-seg.onnx', 
                            confidence_threshold: float = 0.5,
-                           debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+                           debug: bool = False,
+                           source_path: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
     Detect document page using YOLO segmentation model.
     
@@ -72,6 +73,8 @@ def detectDocumentPage_YOLO(src: np.ndarray,
     if debug:
         print("\n" + "="*70, file=sys.stderr)
         print(f"YOLO Method: Starting document detection (model: {model_name})", file=sys.stderr)
+        if source_path:
+            print(f"Processing file: {source_path}", file=sys.stderr)
         print("="*70, file=sys.stderr)
         print(f"Input image shape: {src.shape}", file=sys.stderr)
     

@@ -42,7 +42,8 @@ def getVersionInfo():
 
 
 def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug: bool = False, 
-                            use_content_verify: bool = False, confidence_threshold: float = 0.85) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+                            use_content_verify: bool = False, confidence_threshold: float = 0.85,
+                            source_path: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
     Detect document page using U2-Net AI model with intelligent tight cropping.
     
@@ -90,6 +91,8 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
     if debug:
         print("\n" + "="*70, file=sys.stderr)
         print(f"U2-Net Method: Starting document detection (model: {model_name})", file=sys.stderr)
+        if source_path:
+            print(f"Processing file: {source_path}", file=sys.stderr)
         print("="*70, file=sys.stderr)
         print(f"Input image shape: {src.shape}", file=sys.stderr)
     
@@ -101,7 +104,7 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             print("✅ U2-Net module imported successfully", file=sys.stderr)
         
         # Run U2-Net inference to get mask
-        mask = run_u2net_inference(src, model_name=model_name, debug=debug)
+        mask = run_u2net_inference(src, model_name=model_name, debug=debug, source_path=source_path)
         
         if mask is None:
             if debug:
@@ -752,7 +755,8 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
 
 
 def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name: str = 'u2netp', debug: bool = False,
-                              use_content_verify: bool = False, confidence_threshold: float = 0.85) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
+                              use_content_verify: bool = False, confidence_threshold: float = 0.85,
+                              source_path: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
     """
     Main function to detect and crop document page from image.
     
@@ -792,6 +796,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
         print(f"\n=== Document Page Detection ===", file=sys.stderr)
         print(f"Input image size: {src.shape[1]}x{src.shape[0]}", file=sys.stderr)
         print(f"Requested method: {method}", file=sys.stderr)
+        if source_path:
+            print(f"Processing file: {source_path}", file=sys.stderr)
         if method == 'u2net' or method == 'auto':
             print(f"U2-Net model: {model_name}", file=sys.stderr)
     
@@ -807,7 +813,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
     if method == 'u2net':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(
             src, model_name=model_name, debug=debug, 
-            use_content_verify=use_content_verify, confidence_threshold=confidence_threshold
+            use_content_verify=use_content_verify, confidence_threshold=confidence_threshold,
+            source_path=source_path
         )
         method_used = "u2net" if success else "u2net_failed"
     elif method == 'yolo':
@@ -815,7 +822,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
         from kukalib.yolo_detector import detectDocumentPage_YOLO
         # Use YOLO model - default to ONNX format for speed
         yolo_model = f"{model_name}.onnx" if not model_name.endswith('.onnx') and not model_name.endswith('.pt') else model_name
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, confidence_threshold=confidence_threshold, debug=debug)
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, confidence_threshold=confidence_threshold, debug=debug, source_path=source_path)
         method_used = "yolo" if success else "yolo_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
@@ -825,7 +832,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
         # Focus on U2-Net and YOLO as primary AI methods
         
         # 1. Try U2-Net (PRIMARY - AI-based, best for real-world documents)
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug, source_path=source_path)
         if success and confidence > 0.5:
             method_used = "u2net"
         else:
@@ -833,7 +840,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
             if debug:
                 print("\nAuto: U2-Net low confidence or failed, trying YOLO method", file=sys.stderr)
             from kukalib.yolo_detector import detectDocumentPage_YOLO
-            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.onnx', confidence_threshold=confidence_threshold, debug=debug)
+            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.onnx', confidence_threshold=confidence_threshold, debug=debug, source_path=source_path)
             
             # Use YOLO if better confidence
             if success_yolo and confidence_yolo > confidence:
