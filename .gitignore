@@ -8,3 +8,6 @@ kukalib/__pycache__
 .vs
 # Note: kukalib/models/*.onnx files are tracked (model cache)
 # They will auto-download if not present
+
+# Test outputs - not committed
+docs/samples/extracted_dataset_output/

@@ -42,15 +42,15 @@ def getVersionInfo():
 
 
 def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug: bool = False, 
-                            use_content_verify: bool = False, confidence_threshold: float = 0.90) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+                            use_content_verify: bool = False, confidence_threshold: float = 0.85) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
     Detect document page using U2-Net AI model with intelligent tight cropping.
     
-    V4 Advanced Improvements:
-    - Adaptive confidence threshold (configurable, default 0.90)
-    - Content-based verification for medium confidence (60-90%)
+    V4 Final Unified Logic:
+    - Default confidence threshold: 0.85 (unified with YOLO)
+    - Content-based verification for medium confidence (60-85%)
     - Three-tier decision system (high/medium/low confidence)
-    - Default to u2netp (lightweight model)
+    - Default to u2netp (lightweight model, only model option)
     - Intelligent tight cropping (no fixed margins)
     - Multiple contour detection (handles 2-page documents)
     - Smart content verification to avoid cutting text
@@ -66,13 +66,13 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
     src : np.ndarray
         Input image (BGR format)
     model_name : str
-        'u2netp' for lightweight (4.4MB, default) or 'u2net' for full model (176MB)
+        'u2netp' for lightweight (4.4MB, default and only option in V4 Final)
     debug : bool
         If True, print extensive debug information
     use_content_verify : bool
-        If True, use content-based verification for medium confidence (60-90%)
+        If True, use content-based verification for medium confidence (60-85%)
     confidence_threshold : float
-        Threshold for cropping decision (default 0.90)
+        Threshold for cropping decision (default 0.85, unified with YOLO)
         
     Returns:
     --------
@@ -752,11 +752,11 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
 
 
 def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name: str = 'u2netp', debug: bool = False,
-                              use_content_verify: bool = False, confidence_threshold: float = 0.90) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
+                              use_content_verify: bool = False, confidence_threshold: float = 0.85) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
     """
     Main function to detect and crop document page from image.
     
-    V4 Advanced improvements: Adaptive confidence threshold, content-based verification, three-tier decision system.
+    V4 Final Unified Logic: Both U2-Net and YOLO use same threshold (0.85) and verification logic.
     
     Automatically selects the best method or uses specified method.
     Uses simple bounding box cropping (NO perspective transform/dewarp).
@@ -768,14 +768,14 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
     method : str
         Detection method: 'u2net', 'yolo', 'content' (auto mode removed in V4)
     model_name : str
-        For U2-Net: 'u2netp' (4.4MB, default) or 'u2net' (176MB for maximum accuracy)
-        For YOLO: 'yolov11n-seg' (11MB), 'yolov11s-seg' (22MB), or custom model path
+        For U2-Net: 'u2netp' (4.4MB, only option in V4 Final)
+        For YOLO: 'yolov11s-seg' (22MB, default), 'yolov11n-seg' (11MB), or custom model path
     debug : bool
         If True, print debug information
     use_content_verify : bool
-        If True, use content-based verification for medium confidence (60-90%)
+        If True, use content-based verification for medium confidence (60-85%)
     confidence_threshold : float
-        Threshold for auto-crop decision (default 0.90)
+        Threshold for auto-crop decision (default 0.85, unified for both models)
         
     Returns:
     --------

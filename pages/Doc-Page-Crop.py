@@ -18,55 +18,49 @@ def main_loop():
     
     # Add description
     st.markdown("""
-    **Tính năng V4:**
-    - 🎯 Crop thông minh sát nhất có thể (KHÔNG dùng margins cố định)
+    **Tính năng V4 Final:**
+    - 🎯 Logic thống nhất cho U2-Net và YOLO (threshold 0.85)
     - 🔍 Phát hiện tài liệu nhiều trang (ví dụ: báo 2 trang)
     - 📊 Hiển thị độ tin cậy (confidence score) cho mỗi detection
-    - ⚡ Mặc định: u2netp (nhẹ, nhanh)
-    - 🛡️ Tự động bỏ qua xử lý nếu nghi ngờ sẽ cắt content
+    - ⚡ U2-Net: u2netp.onnx (4.4MB) - duy nhất một model
+    - ⚡ YOLO: yolov11s-seg.onnx (22MB) - mặc định, độ chính xác cao
+    - 🛡️ Tự động bỏ qua xử lý nếu confidence < 0.85
     - ⏱️ Hiển thị thời gian detection (milliseconds)
     - 🚫 KHÔNG làm xiên méo ảnh (NO perspective transform)
-    - ✅ Kiểm chứng chéo với Content-Based để tránh crop nhầm
-    - 🧪 Đã test với dataset Vais (59 pages, 50+100 DPI)
+    - ✅ Tùy chọn Content-Based Verify cho confidence 60-85%
+    - 🧪 Đã test với dataset Vais (59 pages, 118 images at 50+100 DPI)
     
     **Phương pháp:**
-    - **U2-Net** ⭐: AI-based detection (MẶC ĐỊNH, KHUYẾN NGHỊ)
-      - u2netp (4.4MB): MẶC ĐỊNH - Nhanh, độ tin cậy cao
-      - u2net (176MB): Chính xác tối đa
-      - **Chỉ crop khi confidence >90%** (rất bảo thủ)
-    - **YOLO**: YOLOv11 nano segmentation (nhanh, chính xác, model 6MB)
-    - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
+    - **U2-Net** ⭐: AI-based detection (uses u2netp.onnx - 4.4MB)
+      - **Chỉ crop khi confidence ≥85%** (có thể điều chỉnh)
+    - **YOLO**: YOLOv11-seg (yolov11s-seg mặc định - 22MB, nhanh + chính xác)
+      - **Chỉ crop khi confidence ≥85%** (có thể điều chỉnh)
+    - **Content**: Content-based detection (fallback, nhanh)
     
-    **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content, confidence >90%.
+    **Ưu tiên**: KHÔNG crop vào content, threshold thống nhất 0.85.
     """)
     
-    # Method selection, model selection, export option, and debug option
+    # Method selection, model selection (YOLO only), export option, and debug option
     col_method, col_model, col_export, col_debug = st.columns([1, 1, 1, 1])
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp:",
             ["u2net", "yolo", "content"],
             index=0,  # Default to u2net as requested
-            help="u2net: AI-based (KHUYẾN NGHỊ), yolo: YOLOv11 fast detection, content: Traditional method"
+            help="u2net: AI-based (uses u2netp.onnx), yolo: YOLOv11-seg (fast + accurate), content: Traditional method"
         )
     with col_model:
-        # Show model selector based on detection method
-        if detection_method == "u2net":
-            model_name = st.selectbox(
-                "U2-Net Model:",
-                ["u2netp", "u2net"],
-                index=0,  # Default to u2netp (lightweight)
-                help="u2netp: 4.4MB (mặc định, nhanh), u2net: 176MB (chính xác cao hơn)"
-            )
-        elif detection_method == "yolo":
+        # Show model selector only for YOLO (U2-Net has only one model in V4 Final)
+        if detection_method == "yolo":
             model_name = st.selectbox(
                 "YOLO Model:",
-                ["yolov11n-seg", "yolov11s-seg"],
-                index=0,  # Default to yolov11n-seg
-                help="yolov11n-seg: 11.2MB (nhanh), yolov11s-seg: 22MB (chính xác hơn). Thêm models vào kukalib/models/"
+                ["yolov11s-seg", "yolov11n-seg"],
+                index=0,  # Default to yolov11s-seg (changed from yolov11n-seg)
+                help="yolov11s-seg: 22MB (mặc định, 92-95% accuracy), yolov11n-seg: 11MB (nhanh hơn, 90-92% accuracy)"
             )
         else:
-            model_name = "content"  # No model selection for content method
+            # U2-Net always uses u2netp, content has no model
+            model_name = "u2netp" if detection_method == "u2net" else "content"
             st.empty()  # Empty column for consistent layout
     with col_export:
         export_training = st.checkbox(
@@ -81,22 +75,22 @@ def main_loop():
             help="Hiển thị thông tin debug chi tiết"
         )
     
-    # V4 Advanced: Content verification and confidence threshold controls
+    # V4 Final: Content verification and confidence threshold controls (unified for U2-Net and YOLO)
     col_verify, col_threshold = st.columns([1, 1])
     with col_verify:
         use_content_verify = st.checkbox(
             "✓ Use Content-Based Verify",
             value=False,
-            help="Kích hoạt xác minh content cho confidence 60-90% (tránh crop nhầm vào text)"
+            help="Kích hoạt xác minh content cho confidence 60-85% (tránh crop nhầm vào text). Áp dụng cho cả U2-Net và YOLO."
         )
     with col_threshold:
         confidence_threshold = st.slider(
             "Confidence Threshold:",
             min_value=0.50,
             max_value=0.95,
-            value=0.90,
+            value=0.85,  # Changed from 0.90 to 0.85
             step=0.05,
-            help="Ngưỡng tin cậy để crop (mặc định 0.90). Thấp hơn = crop nhiều hơn nhưng có thể crop nhầm."
+            help="Ngưỡng tin cậy để crop (mặc định 0.85, thống nhất cho U2-Net và YOLO). Thấp hơn = crop nhiều hơn."
         )
     
     # Show example images
