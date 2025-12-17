@@ -30,14 +30,14 @@ def main_loop():
     - 🧪 Đã test với dataset Vais (59 pages, 50+100 DPI)
     
     **Phương pháp:**
-    - **Auto**: Tự động chọn U2-Net → YOLO → Content
-    - **U2-Net** ⭐: AI-based detection (KHUYẾN NGHỊ)
+    - **U2-Net** ⭐: AI-based detection (MẶC ĐỊNH, KHUYẾN NGHỊ)
       - u2netp (4.4MB): MẶC ĐỊNH - Nhanh, độ tin cậy cao
       - u2net (176MB): Chính xác tối đa
-    - **YOLO**: YOLOv8 segmentation (nhanh, chính xác)
+      - **Chỉ crop khi confidence >90%** (rất bảo thủ)
+    - **YOLO**: YOLOv11 nano segmentation (nhanh, chính xác, model 6MB)
     - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
     
-    **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content.
+    **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content, confidence >90%.
     """)
     
     # Method selection, model selection, export option, and debug option
@@ -45,9 +45,9 @@ def main_loop():
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp:",
-            ["auto", "u2net", "yolo", "content"],
-            index=0,
-            help="Auto: U2-Net → YOLO → Content (DeepLabV3 đã loại bỏ trong V4)"
+            ["u2net", "yolo", "content"],
+            index=0,  # Default to u2net as requested
+            help="u2net: AI-based (KHUYẾN NGHỊ), yolo: YOLOv11 fast detection, content: Traditional method"
         )
     with col_model:
         u2net_model = st.selectbox(

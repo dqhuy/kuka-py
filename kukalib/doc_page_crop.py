@@ -251,15 +251,15 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             skip_reason = "no background detected (>92% coverage)"
             confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
         
-        # Rule 2: Very low confidence (<0.30) - suspicious, might cut content
-        elif confidence < 0.30:
+        # Rule 2: Confidence threshold - MUST be >90% to crop (per user requirement)
+        elif confidence < 0.90:
             should_skip_crop = True
-            skip_reason = f"low confidence ({confidence:.2f})"
+            skip_reason = f"confidence too low ({confidence:.2f}, need >0.90)"
         
-        # Rule 3: Would remove too much (>70% removal) with low confidence
-        elif area_ratio < 0.30 and confidence < 0.50:
+        # Rule 3: Would remove too much (>70% removal) - extra safety check
+        elif area_ratio < 0.30:
             should_skip_crop = True
-            skip_reason = f"suspicious crop (would remove {(1-area_ratio)*100:.0f}%, confidence={confidence:.2f})"
+            skip_reason = f"suspicious crop (would remove {(1-area_ratio)*100:.0f}% of image)"
         
         if should_skip_crop:
             if debug:
@@ -745,7 +745,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     elif method == 'yolo':
         # Try YOLO detection
         from kukalib.yolo_detector import detectDocumentPage_YOLO
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=model_name, debug=debug)
+        # Use default YOLO model (yolov11n-seg.pt)
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.pt', debug=debug)
         method_used = "yolo" if success else "yolo_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
@@ -763,7 +764,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
             if debug:
                 print("\nAuto: U2-Net low confidence or failed, trying YOLO method", file=sys.stderr)
             from kukalib.yolo_detector import detectDocumentPage_YOLO
-            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, debug=debug)
+            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.pt', debug=debug)
             
             # Use YOLO if better confidence
             if success_yolo and confidence_yolo > confidence:

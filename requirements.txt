@@ -7,3 +7,4 @@ streamlit
 PyMuPDF
 Pillow
 onnxruntime>=1.15.0
+ultralytics>=8.0.0

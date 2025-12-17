@@ -26,7 +26,7 @@ def check_yolo_available() -> bool:
 
 
 def detectDocumentPage_YOLO(src: np.ndarray, 
-                           model_name: str = 'yolov8n-seg', 
+                           model_name: str = 'yolov11n-seg.pt', 
                            confidence_threshold: float = 0.5,
                            debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
@@ -85,19 +85,41 @@ def detectDocumentPage_YOLO(src: np.ndarray,
         if debug:
             print("✅ YOLO module imported successfully", file=sys.stderr)
         
-        # Determine model path
+        # Determine model path - ensure we download to local folder
+        models_dir = "kukalib/models"
+        os.makedirs(models_dir, exist_ok=True)
+        
         if os.path.exists(model_name):
             model_path = model_name
         elif model_name.endswith('.pt') or model_name.endswith('.onnx'):
-            model_path = f"kukalib/models/{model_name}"
+            # Check if model exists locally
+            local_model_path = os.path.join(models_dir, model_name)
+            if os.path.exists(local_model_path):
+                model_path = local_model_path
+            else:
+                # Download model - YOLO will download to cache, then we copy
+                if debug:
+                    print(f"📥 Downloading YOLO model: {model_name}", file=sys.stderr)
+                # Use model name without extension for downloading
+                model_base = model_name.replace('.pt', '')
+                model_path = model_base  # YOLO will auto-download
         else:
             model_path = model_name  # Use pretrained model name
         
         if debug:
             print(f"📂 Loading model: {model_path}", file=sys.stderr)
         
-        # Load model
+        # Load model (YOLO will download if needed)
         model = YOLO(model_path)
+        
+        # Copy model to local folder if it was downloaded
+        if not os.path.exists(model_name) and model_name.endswith('.pt'):
+            local_model_path = os.path.join(models_dir, model_name)
+            if hasattr(model, 'ckpt_path') and os.path.exists(model.ckpt_path):
+                import shutil
+                shutil.copy(model.ckpt_path, local_model_path)
+                if debug:
+                    print(f"✅ Model saved to: {local_model_path}", file=sys.stderr)
         
         if debug:
             print("✅ Model loaded successfully", file=sys.stderr)
