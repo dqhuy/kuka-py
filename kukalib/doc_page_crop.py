@@ -41,15 +41,18 @@ def getVersionInfo():
     return versionInfo
 
 
-def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
+def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug: bool = False, 
+                            use_content_verify: bool = False, confidence_threshold: float = 0.90) -> Tuple[np.ndarray, np.ndarray, tuple, bool, float, float]:
     """
     Detect document page using U2-Net AI model with intelligent tight cropping.
     
-    V3 Improvements:
+    V4 Advanced Improvements:
+    - Adaptive confidence threshold (configurable, default 0.90)
+    - Content-based verification for medium confidence (60-90%)
+    - Three-tier decision system (high/medium/low confidence)
     - Default to u2netp (lightweight model)
     - Intelligent tight cropping (no fixed margins)
     - Multiple contour detection (handles 2-page documents)
-    - Confidence scoring system
     - Smart content verification to avoid cutting text
     
     This method uses deep learning for robust detection even with complex backgrounds.
@@ -66,6 +69,10 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         'u2netp' for lightweight (4.4MB, default) or 'u2net' for full model (176MB)
     debug : bool
         If True, print extensive debug information
+    use_content_verify : bool
+        If True, use content-based verification for medium confidence (60-90%)
+    confidence_threshold : float
+        Threshold for cropping decision (default 0.90)
         
     Returns:
     --------
@@ -241,9 +248,11 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
                 print(f"   {factor}: {score:.2f}", file=sys.stderr)
             print(f"   TOTAL CONFIDENCE: {confidence:.2f} ({confidence*100:.0f}%)", file=sys.stderr)
         
-        # Decision logic based on confidence and area ratio
+        # V4 Advanced: Three-tier decision logic with adaptive threshold
         should_skip_crop = False
         skip_reason = ""
+        verification_used = False
+        verification_passed = False
         
         # Rule 1: Document occupies most of image (>92%) - likely no background
         if area_ratio > 0.92:
@@ -251,13 +260,61 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             skip_reason = "no background detected (>92% coverage)"
             confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
         
-        # Rule 2: Confidence threshold - MUST be >90% to crop (per user requirement)
-        elif confidence < 0.90:
+        # Rule 2: Three-tier confidence system
+        # Tier 1: High confidence - Auto crop
+        elif confidence >= confidence_threshold:
+            should_skip_crop = False
+            if debug:
+                print(f"\n✅ HIGH CONFIDENCE ({confidence:.2f} >= {confidence_threshold:.2f}): Auto crop", file=sys.stderr)
+        
+        # Tier 2: Medium confidence (60-90%) - Use content verification if enabled
+        elif confidence >= 0.60 and use_content_verify:
+            verification_used = True
+            if debug:
+                print(f"\n⚠️  MEDIUM CONFIDENCE ({confidence:.2f}): Using content verification", file=sys.stderr)
+            
+            # Import content verification function
+            try:
+                from kukalib.training_export import verify_removed_content
+                
+                # Get the crop bbox
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                
+                # Create bbox for verification
+                bbox = (x, y, w, h)
+                
+                # Verify removed regions don't contain text
+                is_suspicious, details = verify_removed_content(src, mask_binary, bbox, debug=debug)
+                
+                if is_suspicious:
+                    should_skip_crop = True
+                    skip_reason = f"content verification failed: {details.get('reason', 'text detected in removed region')}"
+                    verification_passed = False
+                    if debug:
+                        print(f"   ❌ Verification FAILED: {skip_reason}", file=sys.stderr)
+                else:
+                    should_skip_crop = False
+                    verification_passed = True
+                    if debug:
+                        print(f"   ✅ Verification PASSED: Safe to crop", file=sys.stderr)
+            except Exception as e:
+                if debug:
+                    print(f"   ⚠️  Content verification error: {e}", file=sys.stderr)
+                # If verification fails, be conservative - skip crop
+                should_skip_crop = True
+                skip_reason = "verification error (being conservative)"
+        
+        # Tier 3: Low confidence (<60%) or medium without verification - Skip
+        elif confidence < 0.60:
             should_skip_crop = True
-            skip_reason = f"confidence too low ({confidence:.2f}, need >0.90)"
+            skip_reason = f"confidence too low ({confidence:.2f}, minimum 0.60)"
+        else:
+            # Medium confidence without verification enabled
+            should_skip_crop = True
+            skip_reason = f"confidence below threshold ({confidence:.2f}, need {confidence_threshold:.2f})"
         
         # Rule 3: Would remove too much (>70% removal) - extra safety check
-        elif area_ratio < 0.30:
+        if not should_skip_crop and area_ratio < 0.30:
             should_skip_crop = True
             skip_reason = f"suspicious crop (would remove {(1-area_ratio)*100:.0f}% of image)"
         
@@ -275,8 +332,12 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             cv2.rectangle(lineImg, (0, 0), (w_img, h_img), (0, 255, 0), 3)
             cv2.putText(lineImg, f"NO CROP: {skip_reason}", (10, 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(lineImg, f"Confidence: {confidence:.2f}", (10, 60), 
+            cv2.putText(lineImg, f"Confidence: {confidence:.2f} (threshold: {confidence_threshold:.2f})", (10, 60), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            if verification_used:
+                status = "PASSED" if verification_passed else "FAILED"
+                cv2.putText(lineImg, f"Content Verify: {status}", (10, 90), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint = corners
             return src.copy(), lineImg, (topleftPoint, toprightPoint, bottomrightPoint, bottomleftPoint), True, time_ms, confidence
@@ -690,11 +751,12 @@ def detectDocumentPage_ContentBased(src: np.ndarray, debug: bool = False) -> Tup
         return np.zeros(src.shape, dtype=np.uint8), src.copy(), ([], [], [], []), False, time_ms, 0.0
 
 
-def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name: str = 'u2netp', debug: bool = False) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
+def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name: str = 'u2netp', debug: bool = False,
+                              use_content_verify: bool = False, confidence_threshold: float = 0.90) -> Tuple[np.ndarray, np.ndarray, tuple, str, float, float]:
     """
     Main function to detect and crop document page from image.
     
-    V4 improvements: Tested with real Vais dataset, DeepLabV3 removed, multi-resolution stability, enhanced validation.
+    V4 Advanced improvements: Adaptive confidence threshold, content-based verification, three-tier decision system.
     
     Automatically selects the best method or uses specified method.
     Uses simple bounding box cropping (NO perspective transform/dewarp).
@@ -704,13 +766,16 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     src : np.ndarray
         Input image (BGR format)
     method : str
-        Detection method: 'auto', 'u2net', 'yolo', 'content'
-        'auto' tries U2-Net → YOLO → Content (DeepLabV3 removed in V4)
+        Detection method: 'u2net', 'yolo', 'content' (auto mode removed in V4)
     model_name : str
         For U2-Net: 'u2netp' (4.4MB, default) or 'u2net' (176MB for maximum accuracy)
-        For YOLO: 'yolov8n-seg' (6MB, default) or custom model path
+        For YOLO: 'yolov11n-seg' (11MB), 'yolov11s-seg' (22MB), or custom model path
     debug : bool
         If True, print debug information
+    use_content_verify : bool
+        If True, use content-based verification for medium confidence (60-90%)
+    confidence_threshold : float
+        Threshold for auto-crop decision (default 0.90)
         
     Returns:
     --------
@@ -738,21 +803,24 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     time_ms = 0.0
     confidence = 0.0
     
-    # Method selection - U2-Net, YOLO, and Content-Based supported (DeepLabV3 removed in V4)
+    # Method selection - U2-Net, YOLO, and Content-Based supported (DeepLabV3 removed, auto mode removed in V4)
     if method == 'u2net':
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(
+            src, model_name=model_name, debug=debug, 
+            use_content_verify=use_content_verify, confidence_threshold=confidence_threshold
+        )
         method_used = "u2net" if success else "u2net_failed"
     elif method == 'yolo':
         # Try YOLO detection
         from kukalib.yolo_detector import detectDocumentPage_YOLO
         # Use YOLO model - default to ONNX format for speed
-        yolo_model = f"{model_name}.onnx" if not model_name.endswith('.onnx') else model_name
+        yolo_model = f"{model_name}.onnx" if not model_name.endswith('.onnx') and not model_name.endswith('.pt') else model_name
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, debug=debug)
         method_used = "yolo" if success else "yolo_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
         method_used = "content" if success else "content_failed"
-    else:  # method == 'auto'
+    else:  # fallback for any other method name
         # V4: Priority order: U2-Net → YOLO → Content (DeepLabV3 removed)
         # Focus on U2-Net and YOLO as primary AI methods
         

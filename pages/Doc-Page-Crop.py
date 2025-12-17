@@ -61,9 +61,9 @@ def main_loop():
         elif detection_method == "yolo":
             model_name = st.selectbox(
                 "YOLO Model:",
-                ["yolov11n-seg"],
+                ["yolov11n-seg", "yolov11s-seg"],
                 index=0,  # Default to yolov11n-seg
-                help="yolov11n-seg: 11.2MB ONNX model (nhanh, chính xác). Thêm models khác vào kukalib/models/"
+                help="yolov11n-seg: 11.2MB (nhanh), yolov11s-seg: 22MB (chính xác hơn). Thêm models vào kukalib/models/"
             )
         else:
             model_name = "content"  # No model selection for content method
@@ -79,6 +79,24 @@ def main_loop():
             "Debug mode",
             value=False,
             help="Hiển thị thông tin debug chi tiết"
+        )
+    
+    # V4 Advanced: Content verification and confidence threshold controls
+    col_verify, col_threshold = st.columns([1, 1])
+    with col_verify:
+        use_content_verify = st.checkbox(
+            "✓ Use Content-Based Verify",
+            value=False,
+            help="Kích hoạt xác minh content cho confidence 60-90% (tránh crop nhầm vào text)"
+        )
+    with col_threshold:
+        confidence_threshold = st.slider(
+            "Confidence Threshold:",
+            min_value=0.50,
+            max_value=0.95,
+            value=0.90,
+            step=0.05,
+            help="Ngưỡng tin cậy để crop (mặc định 0.90). Thấp hơn = crop nhiều hơn nhưng có thể crop nhầm."
         )
     
     # Show example images
@@ -139,7 +157,9 @@ def main_loop():
                         img, 
                         method=detection_method,
                         model_name=model_name,
-                        debug=show_debug
+                        debug=show_debug,
+                        use_content_verify=use_content_verify,
+                        confidence_threshold=confidence_threshold
                     )
                 
                 # Display results
@@ -208,7 +228,9 @@ def main_loop():
                 src, 
                 method=detection_method,
                 model_name=model_name,
-                debug=show_debug
+                debug=show_debug,
+                use_content_verify=use_content_verify,
+                confidence_threshold=confidence_threshold
             )
         
         # Show results
