@@ -694,7 +694,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     """
     Main function to detect and crop document page from image.
     
-    V3 improvements: Default to u2netp (lightweight), intelligent tight cropping, confidence scoring.
+    V4 improvements: Tested with real Vais dataset, DeepLabV3 removed, multi-resolution stability, enhanced validation.
     
     Automatically selects the best method or uses specified method.
     Uses simple bounding box cropping (NO perspective transform/dewarp).
@@ -704,8 +704,8 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     src : np.ndarray
         Input image (BGR format)
     method : str
-        Detection method: 'auto', 'u2net', 'yolo', 'deeplabv3', 'content'
-        'auto' tries U2-Net → YOLO → DeepLabV3 → Content
+        Detection method: 'auto', 'u2net', 'yolo', 'content'
+        'auto' tries U2-Net → YOLO → Content (DeepLabV3 removed in V4)
     model_name : str
         For U2-Net: 'u2netp' (4.4MB, default) or 'u2net' (176MB for maximum accuracy)
         For YOLO: 'yolov8n-seg' (6MB, default) or custom model path
@@ -738,7 +738,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
     time_ms = 0.0
     confidence = 0.0
     
-    # Method selection - U2-Net, YOLO, DeepLabV3, and Content-Based supported
+    # Method selection - U2-Net, YOLO, and Content-Based supported (DeepLabV3 removed in V4)
     if method == 'u2net':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
         method_used = "u2net" if success else "u2net_failed"
@@ -747,15 +747,12 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
         from kukalib.yolo_detector import detectDocumentPage_YOLO
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=model_name, debug=debug)
         method_used = "yolo" if success else "yolo_failed"
-    elif method == 'deeplabv3':
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_DeepLabV3(src, debug=debug)
-        method_used = "deeplabv3" if success else "deeplabv3_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
         method_used = "content" if success else "content_failed"
     else:  # method == 'auto'
-        # Priority order: U2-Net → YOLO → DeepLabV3 → Content
-        # Focus on U2-Net and YOLO as primary methods
+        # V4: Priority order: U2-Net → YOLO → Content (DeepLabV3 removed)
+        # Focus on U2-Net and YOLO as primary AI methods
         
         # 1. Try U2-Net (PRIMARY - AI-based, best for real-world documents)
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_U2Net(src, model_name=model_name, debug=debug)
@@ -775,21 +772,14 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'auto', model_name:
             elif success:
                 method_used = "u2net"  # Keep U2-Net result
             else:
-                # 3. Try DeepLabV3 (CNN fallback)
+                # 3. Try Content-Based (final fallback for docs with clear margins)
                 if debug:
-                    print("\nAuto: YOLO also failed, trying DeepLabV3 method", file=sys.stderr)
-                cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_DeepLabV3(src, debug=debug)
+                    print("\nAuto: Both U2-Net and YOLO failed, trying Content-Based method", file=sys.stderr)
+                cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
                 if success:
-                    method_used = "deeplabv3"
+                    method_used = "content"
                 else:
-                    # 4. Try Content-Based (final fallback for docs with margins)
-                    if debug:
-                        print("\nAuto: DeepLabV3 failed, trying Content-Based method", file=sys.stderr)
-                    cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
-                    if success:
-                        method_used = "content"
-                    else:
-                        method_used = "failed"
+                    method_used = "failed"
     
     # If detection failed, return original image
     if not success or cropped is None or cropped.size == 0:

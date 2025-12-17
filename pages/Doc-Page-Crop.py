@@ -18,7 +18,7 @@ def main_loop():
     
     # Add description
     st.markdown("""
-    **Tính năng V3:**
+    **Tính năng V4:**
     - 🎯 Crop thông minh sát nhất có thể (KHÔNG dùng margins cố định)
     - 🔍 Phát hiện tài liệu nhiều trang (ví dụ: báo 2 trang)
     - 📊 Hiển thị độ tin cậy (confidence score) cho mỗi detection
@@ -26,14 +26,16 @@ def main_loop():
     - 🛡️ Tự động bỏ qua xử lý nếu nghi ngờ sẽ cắt content
     - ⏱️ Hiển thị thời gian detection (milliseconds)
     - 🚫 KHÔNG làm xiên méo ảnh (NO perspective transform)
+    - ✅ Kiểm chứng chéo với Content-Based để tránh crop nhầm
+    - 🧪 Đã test với dataset Vais (59 pages, 50+100 DPI)
     
     **Phương pháp:**
-    - **Auto**: Tự động chọn U2-Net → DeepLabV3 → Content
+    - **Auto**: Tự động chọn U2-Net → YOLO → Content
     - **U2-Net** ⭐: AI-based detection (KHUYẾN NGHỊ)
       - u2netp (4.4MB): MẶC ĐỊNH - Nhanh, độ tin cậy cao
       - u2net (176MB): Chính xác tối đa
+    - **YOLO**: YOLOv8 segmentation (nhanh, chính xác)
     - **Content**: Content-based detection (nhanh, tốt cho tài liệu có margin rõ)
-    - **DeepLabV3**: Semantic segmentation CNN (cần cài thêm torch)
     
     **Ưu tiên**: Crop sát thông minh, KHÔNG crop vào content.
     """)
@@ -43,9 +45,9 @@ def main_loop():
     with col_method:
         detection_method = st.selectbox(
             "Chọn phương pháp:",
-            ["auto", "u2net", "yolo", "deeplabv3", "content"],
+            ["auto", "u2net", "yolo", "content"],
             index=0,
-            help="Auto: U2-Net → YOLO → DeepLabV3 → Content"
+            help="Auto: U2-Net → YOLO → Content (DeepLabV3 đã loại bỏ trong V4)"
         )
     with col_model:
         u2net_model = st.selectbox(
@@ -72,13 +74,13 @@ def main_loop():
     col_ex1, col_ex2, col_ex3 = st.columns(3)
     with col_ex1:
         if os.path.exists('docs/samples/input/sample1_simple_document.jpg'):
-            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc', use_column_width=True)
+            st.image('docs/samples/input/sample1_simple_document.jpg', caption='Ảnh gốc', width=None)
     with col_ex2:
         if os.path.exists('docs/samples/output/sample1_simple_document_debug.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện', use_column_width=True)
+            st.image('docs/samples/output/sample1_simple_document_debug.jpg', caption='Phát hiện', width=None)
     with col_ex3:
         if os.path.exists('docs/samples/output/sample1_simple_document_cropped.jpg'):
-            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả', use_column_width=True)
+            st.image('docs/samples/output/sample1_simple_document_cropped.jpg', caption='Kết quả', width=None)
     
     st.markdown("---")
     
@@ -133,7 +135,7 @@ def main_loop():
                 
                 with col1:
                     st.markdown("**Ảnh gốc**")
-                    st.image(img, channels='BGR', use_column_width=True)
+                    st.image(img, channels='BGR', width=None)
                     st.caption(f"Kích thước: {img.shape[1]}x{img.shape[0]}")
                     # Download button for original image
                     is_success_orig, buffer_orig = cv2.imencode(".jpg", img)
@@ -148,13 +150,13 @@ def main_loop():
                 
                 with col2:
                     st.markdown(f"**Phát hiện** ({method_used})")
-                    st.image(debug, channels='BGR', use_column_width=True)
+                    st.image(debug, channels='BGR', width=None)
                     st.caption(f"⏱️ {time_ms:.1f}ms | 📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
                     st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
                 
                 with col3:
                     st.markdown("**Kết quả**")
-                    st.image(cropped, channels='BGR', use_column_width=True)
+                    st.image(cropped, channels='BGR', width=None)
                     st.caption(f"Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
                     
                     # Download button for cropped image
@@ -204,19 +206,19 @@ def main_loop():
         
         with col1:
             st.markdown("**Ảnh gốc**")
-            st.image(src, channels='BGR', use_column_width=True)
+            st.image(src, channels='BGR', width=None)
             st.caption(f"📏 Kích thước: {src.shape[1]}x{src.shape[0]}")
         
         with col2:
             st.markdown(f"**Phát hiện**")
-            st.image(debug, channels='BGR', use_column_width=True)
+            st.image(debug, channels='BGR', width=None)
             st.caption(f"🔧 Phương pháp: {method_used}")
             st.caption(f"⏱️ Thời gian: {time_ms:.1f}ms")
             st.caption(f"📊 Độ tin cậy: {confidence:.2f} ({confidence*100:.0f}%)")
         
         with col3:
             st.markdown("**Kết quả Crop**")
-            st.image(cropped, channels='BGR', use_column_width=True)
+            st.image(cropped, channels='BGR', width=None)
             st.caption(f"📏 Kích thước: {cropped.shape[1]}x{cropped.shape[0]}")
         
         # Download button
