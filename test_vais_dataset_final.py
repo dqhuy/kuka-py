@@ -67,13 +67,14 @@ def test_single_image(image_path, method='u2net', model_name='u2netp'):
         was_cropped = confidence >= CONFIDENCE_THRESHOLD and not np.array_equal(img.shape[:2], cropped.shape[:2])
         status = "cropped" if was_cropped else "skipped"
         
-        # Save the result with proper tagging
+        # Save the result with proper tagging (save debug image with mask overlay when available)
         base_name = Path(image_path).stem  # e.g., Vais_Test_Crop_Lo3.3_page001_100dpi
-        output_name = f"{base_name}_{method}_{status}.jpg"
+        output_name = f"{base_name}_{method}_{status}_mask.jpg"
         output_path = os.path.join(OUTPUT_DIR, output_name)
-        
-        # Save either cropped or original image based on status
-        cv2.imwrite(output_path, cropped if was_cropped else img)
+
+        # Prefer saving debug image (contains mask overlay). Fallback to cropped or original image.
+        to_save = debug_img if debug_img is not None else (cropped if was_cropped else img)
+        cv2.imwrite(output_path, to_save)
         
         print(f"✅ {status} (conf: {confidence:.3f}, time: {time_ms:.1f}ms)")
         

@@ -815,7 +815,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
         from kukalib.yolo_detector import detectDocumentPage_YOLO
         # Use YOLO model - default to ONNX format for speed
         yolo_model = f"{model_name}.onnx" if not model_name.endswith('.onnx') and not model_name.endswith('.pt') else model_name
-        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, debug=debug)
+        cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_YOLO(src, model_name=yolo_model, confidence_threshold=confidence_threshold, debug=debug)
         method_used = "yolo" if success else "yolo_failed"
     elif method == 'content':
         cropped, debugImg, corners, success, time_ms, confidence = detectDocumentPage_ContentBased(src, debug=debug)
@@ -833,7 +833,7 @@ def detectAndCropDocumentPage(src: np.ndarray, method: str = 'u2net', model_name
             if debug:
                 print("\nAuto: U2-Net low confidence or failed, trying YOLO method", file=sys.stderr)
             from kukalib.yolo_detector import detectDocumentPage_YOLO
-            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.pt', debug=debug)
+            cropped_yolo, debugImg_yolo, corners_yolo, success_yolo, time_ms_yolo, confidence_yolo = detectDocumentPage_YOLO(src, model_name='yolov11n-seg.onnx', confidence_threshold=confidence_threshold, debug=debug)
             
             # Use YOLO if better confidence
             if success_yolo and confidence_yolo > confidence:
