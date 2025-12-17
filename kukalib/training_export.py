@@ -180,7 +180,9 @@ def verify_removed_content(image: np.ndarray,
     """
     Verify if removed region (outside bbox) contains important content
     
-    This is a smart content verification to avoid cropping document text or images.
+    CRITICAL V4 HOTFIX 2: Enhanced morphological text detection
+    Uses morphological operations (dilate/erode) to detect text structures
+    in removed regions - prevents false crops on 2-page documents.
     
     Args:
         image: Original image
@@ -190,9 +192,11 @@ def verify_removed_content(image: np.ndarray,
     
     Returns:
         tuple: (suspicious, details)
-            suspicious: True if removed region might contain document content
+            suspicious: True if removed region contains text/content
             details: Dictionary with verification metrics
     """
+    import sys
+    
     x, y, w, h = bbox
     
     # Create removed region (outside bbox)
@@ -205,79 +209,163 @@ def verify_removed_content(image: np.ndarray,
     details = {}
     suspicious_count = 0
     
-    # 1. Check for text in removed region using edge density
-    # (Simple heuristic: text has high edge density)
+    # Convert to grayscale
     gray_removed = cv2.cvtColor(removed_region, cv2.COLOR_BGR2GRAY)
-    edges_removed = cv2.Canny(gray_removed, 50, 150)
-    edge_density_removed = np.count_nonzero(edges_removed) / (image.shape[0] * image.shape[1])
     
-    details['edge_density_removed'] = edge_density_removed
+    # ==============================================================================
+    # CRITICAL FIX 1: Morphological Text Detection
+    # ==============================================================================
+    if debug:
+        print(f"\n🔍 Morphological Text Detection:", file=sys.stderr)
     
-    # If significant edges in removed region, suspicious
-    if edge_density_removed > 0.01:  # 1% edge density threshold
+    # Binarize removed region
+    _, binary_removed = cv2.threshold(gray_removed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Detect horizontal text lines (common in documents)
+    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
+    detected_h = cv2.morphologyEx(binary_removed, cv2.MORPH_CLOSE, kernel_h)
+    detected_h = cv2.morphologyEx(detected_h, cv2.MORPH_OPEN, kernel_h)
+    
+    # Detect vertical text/columns
+    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25))
+    detected_v = cv2.morphologyEx(binary_removed, cv2.MORPH_CLOSE, kernel_v)
+    detected_v = cv2.morphologyEx(detected_v, cv2.MORPH_OPEN, kernel_v)
+    
+    # Combine detections
+    text_pattern = cv2.bitwise_or(detected_h, detected_v)
+    
+    # Calculate text ratio
+    text_pixels = np.count_nonzero(text_pattern)
+    total_removed_pixels = np.count_nonzero(gray_removed)
+    text_ratio = text_pixels / total_removed_pixels if total_removed_pixels > 0 else 0
+    
+    details['text_pattern_ratio'] = text_ratio
+    
+    # VERY SENSITIVE: Any text pattern is suspicious
+    if text_ratio > 0.02:  # 2% text - CRITICAL
+        suspicious_count += 3  # Triple weight for strong text signal
+        if debug:
+            print(f"   ❌ TEXT DETECTED: {text_ratio*100:.2f}% text patterns!", file=sys.stderr)
+    elif text_ratio > 0.01:  # 1% text - suspicious
+        suspicious_count += 2
+        if debug:
+            print(f"   ⚠️  Possible text: {text_ratio*100:.2f}% patterns", file=sys.stderr)
+    elif text_ratio > 0.005:  # 0.5% - minor concern
         suspicious_count += 1
         if debug:
-            print(f"⚠️ High edge density in removed region: {edge_density_removed:.4f}", file=sys.stderr)
+            print(f"   ⚠️  Minor text patterns: {text_ratio*100:.2f}%", file=sys.stderr)
+    else:
+        if debug:
+            print(f"   ✅ Minimal text: {text_ratio*100:.2f}%", file=sys.stderr)
     
-    # 2. Check visual similarity between document and removed region
-    doc_mean = cv2.mean(doc_region)[:3]
+    # ==============================================================================
+    # CRITICAL FIX 2: Margin Analysis
+    # ==============================================================================
+    # Check each margin (top, bottom, left, right) separately
+    margin_size = 50  # pixels
+    h_img, w_img = image.shape[:2]
     
-    # Only check non-zero parts of removed region
-    removed_nonzero = removed_region[np.any(removed_region != 0, axis=2)]
-    if len(removed_nonzero) > 100:  # Need some pixels to compare
-        removed_mean = np.mean(removed_nonzero, axis=0)
-        color_diff = np.linalg.norm(np.array(doc_mean) - np.array(removed_mean))
+    margins = []
+    if y > margin_size:  # Top
+        margins.append(('top', gray_removed[max(0, y-margin_size):y, :]))
+    if y + h < h_img - margin_size:  # Bottom
+        margins.append(('bottom', gray_removed[y+h:min(h_img, y+h+margin_size), :]))
+    if x > margin_size:  # Left
+        margins.append(('left', gray_removed[:, max(0, x-margin_size):x]))
+    if x + w < w_img - margin_size:  # Right
+        margins.append(('right', gray_removed[:, x+w:min(w_img, x+w+margin_size)]))
+    
+    margin_text_detected = False
+    for margin_name, margin_region in margins:
+        if margin_region.size < 100:  # Too small to analyze
+            continue
         
-        details['color_difference'] = color_diff
+        # Detect text in margin using morphological ops
+        _, binary_margin = cv2.threshold(margin_region, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        kernel_text = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
+        text_in_margin = cv2.morphologyEx(binary_margin, cv2.MORPH_CLOSE, kernel_text)
         
-        # If similar colors, might be same content
-        if color_diff < 40:  # Threshold for color similarity
-            suspicious_count += 1
+        text_density = np.count_nonzero(text_in_margin) / margin_region.size
+        
+        if debug:
+            print(f"   Margin '{margin_name}': text_density={text_density*100:.2f}%", file=sys.stderr)
+        
+        # If ANY text in margins, CRITICAL
+        if text_density > 0.08:  # 8% threshold
+            margin_text_detected = True
+            suspicious_count += 3  # Critical weight
             if debug:
-                print(f"⚠️ Similar colors between document and removed region: diff={color_diff:.2f}", file=sys.stderr)
+                print(f"   ❌ CRITICAL: Text in {margin_name} margin!", file=sys.stderr)
+            break
+        elif text_density > 0.05:  # 5% threshold
+            margin_text_detected = True
+            suspicious_count += 2
+            if debug:
+                print(f"   ⚠️  Suspicious: Content in {margin_name} margin", file=sys.stderr)
+            break
     
-    # 3. Check for connected components in removed region
-    # (Multiple components might indicate text/content)
-    _, binary_removed = cv2.threshold(gray_removed, 30, 255, cv2.THRESH_BINARY)
+    details['margin_text_detected'] = margin_text_detected
+    
+    # ==============================================================================
+    # 3. Connected Components Analysis
+    # ==============================================================================
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_removed, connectivity=8)
     
-    # Filter small components (noise)
+    # Count significant components
     significant_components = 0
-    for i in range(1, num_labels):  # Skip background (0)
+    large_components = 0
+    for i in range(1, num_labels):  # Skip background
         area = stats[i, cv2.CC_STAT_AREA]
-        if area > 100:  # Significant size threshold
+        if area > 50:
             significant_components += 1
+        if area > 500:
+            large_components += 1
     
     details['significant_components'] = significant_components
+    details['large_components'] = large_components
     
-    if significant_components > 5:  # Multiple components suggest content
+    # Large components = likely content
+    if large_components > 2:
+        suspicious_count += 2
+        if debug:
+            print(f"   ⚠️  {large_components} large components", file=sys.stderr)
+    elif significant_components > 10:
         suspicious_count += 1
         if debug:
-            print(f"⚠️ Multiple components in removed region: {significant_components}", file=sys.stderr)
+            print(f"   ⚠️  {significant_components} components", file=sys.stderr)
     
-    # 4. Check mask coverage
-    # If mask doesn't cover much of the image, cropping might cut content
+    # ==============================================================================
+    # 4. Mask Coverage Check
+    # ==============================================================================
     mask_coverage = np.count_nonzero(mask) / (mask.shape[0] * mask.shape[1])
     details['mask_coverage'] = mask_coverage
     
-    if mask_coverage > 0.95:  # Document covers >95% of image
-        # Almost no background, cropping is suspicious
+    if mask_coverage > 0.92:  # >92% coverage
+        suspicious_count += 2  # Critical
+        if debug:
+            print(f"   ❌ HIGH mask coverage: {mask_coverage*100:.1f}%", file=sys.stderr)
+    elif mask_coverage > 0.85:  # 85-92%
         suspicious_count += 1
         if debug:
-            print(f"⚠️ High mask coverage: {mask_coverage:.2f} - minimal background", file=sys.stderr)
+            print(f"   ⚠️  Moderate coverage: {mask_coverage*100:.1f}%", file=sys.stderr)
     
-    # Decision: suspicious if 2 or more indicators
+    # ==============================================================================
+    # DECISION: Lowered threshold with weighted scoring
+    # ==============================================================================
+    # With triple-weight on text detection, even 1 text indicator triggers suspicious
     suspicious = suspicious_count >= 2
     details['suspicious_count'] = suspicious_count
     details['is_suspicious'] = suspicious
+    details['reason'] = "text detected in removed region" if (margin_text_detected or text_ratio > 0.01) else "suspicious content"
     
     if debug:
-        print(f"\n📊 Content Verification Results:", file=sys.stderr)
-        print(f"   Edge density removed: {edge_density_removed:.4f}", file=sys.stderr)
-        print(f"   Significant components: {significant_components}", file=sys.stderr)
-        print(f"   Mask coverage: {mask_coverage:.2f}", file=sys.stderr)
-        print(f"   Suspicious indicators: {suspicious_count}/4", file=sys.stderr)
-        print(f"   🚨 Suspicious: {suspicious}", file=sys.stderr)
+        print(f"\n📊 Content Verification Summary:", file=sys.stderr)
+        print(f"   Text pattern ratio: {text_ratio*100:.2f}%", file=sys.stderr)
+        print(f"   Margin text: {margin_text_detected}", file=sys.stderr)
+        print(f"   Components: {significant_components} ({large_components} large)", file=sys.stderr)
+        print(f"   Mask coverage: {mask_coverage*100:.1f}%", file=sys.stderr)
+        print(f"   Suspicious score: {suspicious_count}", file=sys.stderr)
+        print(f"   🚨 DECISION: {'SUSPICIOUS - SKIP CROP' if suspicious else 'SAFE TO CROP'}", file=sys.stderr)
     
     return suspicious, details
 

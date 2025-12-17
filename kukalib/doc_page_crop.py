@@ -268,22 +268,22 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         if debug and is_landscape_spread:
             print(f"\n⚠️  WARNING: Landscape format with high area - likely 2-page document!", file=sys.stderr)
         
-        # Rule 1: Document occupies most of image (>88%, lowered from >92%) - likely no background
-        # CRITICAL FIX: Lowered threshold to catch more no-background cases
-        if area_ratio > 0.88:
+        # Rule 1: Document occupies most of image (>85%, lowered from >88%) - likely no background
+        # CRITICAL FIX 2: Lowered threshold to 85% to catch 2-page documents without background
+        if area_ratio > 0.85:
             should_skip_crop = True
-            skip_reason = "no background detected (>88% coverage)"
+            skip_reason = "no background detected (>85% coverage)"
             confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
             if debug:
-                print(f"\n✅ No background detected (area {area_ratio*100:.1f}% > 88%)", file=sys.stderr)
+                print(f"\n✅ No background detected (area {area_ratio*100:.1f}% > 85%)", file=sys.stderr)
         
         # CRITICAL FIX: Mandatory content verification for high area (even with high confidence)
-        # Rule 2a: High area (>80%) + verification enabled = FORCE VERIFICATION
+        # Rule 2a: High area (>75%, lowered from >80%) + verification enabled = FORCE VERIFICATION
         # This prevents false crops on 2-page newspapers that fill the image
-        elif area_ratio > 0.80 and use_content_verify:
+        elif area_ratio > 0.75 and use_content_verify:
             verification_used = True
             if debug:
-                print(f"\n⚠️  HIGH AREA ({area_ratio*100:.1f}% >80%): FORCING content verification", file=sys.stderr)
+                print(f"\n⚠️  HIGH AREA ({area_ratio*100:.1f}% >75%): FORCING content verification", file=sys.stderr)
                 if is_landscape_spread:
                     print(f"   Extra caution: Landscape spread pattern detected", file=sys.stderr)
             
@@ -319,10 +319,10 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
                 skip_reason = "verification error (being conservative)"
         
         # Rule 2b: High area without verification enabled = SKIP (be safe)
-        # CRITICAL FIX: Don't crop when area >80% without verification
-        elif area_ratio > 0.80:
+        # CRITICAL FIX 2: Don't crop when area >75% without verification
+        elif area_ratio > 0.75:
             should_skip_crop = True
-            skip_reason = f"high area ({area_ratio*100:.1f}% >80%) without verification - unsafe to crop"
+            skip_reason = f"high area ({area_ratio*100:.1f}% >75%) without verification - unsafe to crop"
             if is_landscape_spread:
                 skip_reason += " (landscape spread detected)"
             if debug:
