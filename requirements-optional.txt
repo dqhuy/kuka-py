@@ -1,0 +1,21 @@
+# Optional dependencies for enhanced document page detection
+# Install with: pip install -r requirements-optional.txt
+
+# YOLO-based detection (RECOMMENDED - fast, accurate, easy to train)
+# Excellent for CPU-only environments and .NET integration
+ultralytics>=8.0.0  # YOLOv8 for document segmentation
+
+# PyTorch for training U2-Net models (optional)
+# Only needed if you want to fine-tune U2-Net
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# DeepLabV3 semantic segmentation (optional)
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# OCR for content verification (optional, improves cropping safety)
+pytesseract>=0.3.10
+
+# For GPU acceleration (optional, but recommended if available)
+# Install CUDA-enabled PyTorch from: https://pytorch.org/get-started/locally/
