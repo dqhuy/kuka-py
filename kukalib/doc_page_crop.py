@@ -205,24 +205,28 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
         confidence = 0.0
         confidence_factors = {}
         
-        # Factor 1: Area ratio (0-0.35 points)
+        # CRITICAL FIX: Reduced area_ratio weight to prevent false crops on 2-page documents
+        # Factor 1: Area ratio (0-0.20 points, reduced from 0.35)
+        # High area alone doesn't guarantee good crop - could be 2-page document!
         if area_ratio > 0.85:
-            confidence_factors['area'] = 0.35  # High confidence - document fills image
+            # Don't auto-give max points - very high area is suspicious
+            confidence_factors['area'] = 0.15  # Reduced from 0.35
         elif area_ratio > 0.50:
-            confidence_factors['area'] = 0.30  # Good confidence
+            confidence_factors['area'] = 0.20  # Good confidence
         elif area_ratio > 0.20:
-            confidence_factors['area'] = 0.20  # Moderate confidence
+            confidence_factors['area'] = 0.15  # Moderate confidence
         else:
             confidence_factors['area'] = 0.10  # Low confidence
         
-        # Factor 2: Mask quality (0-0.25 points)
+        # CRITICAL FIX: Increased mask_quality weight (more important than area)
+        # Factor 2: Mask quality (0-0.30 points, increased from 0.25)
         mask_fill_ratio = np.count_nonzero(mask_cleaned) / mask_cleaned.size
         if mask_fill_ratio > 0.30:
-            confidence_factors['mask_quality'] = 0.25
+            confidence_factors['mask_quality'] = 0.30  # Increased from 0.25
         elif mask_fill_ratio > 0.15:
-            confidence_factors['mask_quality'] = 0.20
+            confidence_factors['mask_quality'] = 0.25  # Increased from 0.20
         else:
-            confidence_factors['mask_quality'] = 0.10
+            confidence_factors['mask_quality'] = 0.15  # Increased from 0.10
         
         # Factor 3: Aspect ratio (0-0.20 points)
         aspect_ratio = w / h if h > 0 else 0
@@ -250,27 +254,93 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
             for factor, score in confidence_factors.items():
                 print(f"   {factor}: {score:.2f}", file=sys.stderr)
             print(f"   TOTAL CONFIDENCE: {confidence:.2f} ({confidence*100:.0f}%)", file=sys.stderr)
+            print(f"   Area ratio: {area_ratio*100:.1f}% {'(VERY HIGH - check for 2-page doc)' if area_ratio > 0.85 else ''}", file=sys.stderr)
+            print(f"   Aspect ratio: {aspect_ratio:.2f} {'(LANDSCAPE - possible 2-page spread)' if aspect_ratio > 1.3 else '(PORTRAIT)'}", file=sys.stderr)
         
-        # V4 Advanced: Three-tier decision logic with adaptive threshold
+        # V4 HOTFIX: Enhanced decision logic with mandatory verification for suspicious cases
         should_skip_crop = False
         skip_reason = ""
         verification_used = False
         verification_passed = False
         
-        # Rule 1: Document occupies most of image (>92%) - likely no background
-        if area_ratio > 0.92:
-            should_skip_crop = True
-            skip_reason = "no background detected (>92% coverage)"
-            confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
+        # CRITICAL FIX: Detect likely 2-page spreads (landscape + high area)
+        is_landscape_spread = (aspect_ratio > 1.3 and area_ratio > 0.80)
+        if debug and is_landscape_spread:
+            print(f"\n⚠️  WARNING: Landscape format with high area - likely 2-page document!", file=sys.stderr)
         
-        # Rule 2: Three-tier confidence system
-        # Tier 1: High confidence - Auto crop
+        # Rule 1: Document occupies most of image (>88%, lowered from >92%) - likely no background
+        # CRITICAL FIX: Lowered threshold to catch more no-background cases
+        if area_ratio > 0.88:
+            should_skip_crop = True
+            skip_reason = "no background detected (>88% coverage)"
+            confidence = max(confidence, 0.85)  # High confidence in "no crop" decision
+            if debug:
+                print(f"\n✅ No background detected (area {area_ratio*100:.1f}% > 88%)", file=sys.stderr)
+        
+        # CRITICAL FIX: Mandatory content verification for high area (even with high confidence)
+        # Rule 2a: High area (>80%) + verification enabled = FORCE VERIFICATION
+        # This prevents false crops on 2-page newspapers that fill the image
+        elif area_ratio > 0.80 and use_content_verify:
+            verification_used = True
+            if debug:
+                print(f"\n⚠️  HIGH AREA ({area_ratio*100:.1f}% >80%): FORCING content verification", file=sys.stderr)
+                if is_landscape_spread:
+                    print(f"   Extra caution: Landscape spread pattern detected", file=sys.stderr)
+            
+            # Import content verification function
+            try:
+                from kukalib.training_export import verify_removed_content
+                
+                # Get the crop bbox
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                
+                # Create bbox for verification
+                bbox = (x, y, w, h)
+                
+                # Verify removed regions don't contain text
+                is_suspicious, details = verify_removed_content(src, mask_binary, bbox, debug=debug)
+                
+                if is_suspicious:
+                    should_skip_crop = True
+                    skip_reason = f"content verification failed: {details.get('reason', 'text detected in removed region')}"
+                    verification_passed = False
+                    if debug:
+                        print(f"   ❌ Verification FAILED: {skip_reason}", file=sys.stderr)
+                else:
+                    should_skip_crop = False
+                    verification_passed = True
+                    if debug:
+                        print(f"   ✅ Verification PASSED: Safe to crop", file=sys.stderr)
+            except Exception as e:
+                if debug:
+                    print(f"   ⚠️  Content verification error: {e}", file=sys.stderr)
+                # If verification fails, be conservative - skip crop
+                should_skip_crop = True
+                skip_reason = "verification error (being conservative)"
+        
+        # Rule 2b: High area without verification enabled = SKIP (be safe)
+        # CRITICAL FIX: Don't crop when area >80% without verification
+        elif area_ratio > 0.80:
+            should_skip_crop = True
+            skip_reason = f"high area ({area_ratio*100:.1f}% >80%) without verification - unsafe to crop"
+            if is_landscape_spread:
+                skip_reason += " (landscape spread detected)"
+            if debug:
+                print(f"\n⚠️  SKIPPING: {skip_reason}", file=sys.stderr)
+                print(f"   Enable 'Use Content-Based Verify' to allow cropping high-area images", file=sys.stderr)
+        
+        # Rule 2c: High confidence - Check if needs extra verification
         elif confidence >= confidence_threshold:
+            # Even with high confidence, check area
+            if area_ratio > 0.75:
+                if debug:
+                    print(f"\n⚠️  HIGH CONFIDENCE ({confidence:.2f}) but area is {area_ratio*100:.1f}%", file=sys.stderr)
+                    print(f"   Recommend enabling content verification for safety", file=sys.stderr)
             should_skip_crop = False
             if debug:
-                print(f"\n✅ HIGH CONFIDENCE ({confidence:.2f} >= {confidence_threshold:.2f}): Auto crop", file=sys.stderr)
+                print(f"\n✅ HIGH CONFIDENCE ({confidence:.2f} >= {confidence_threshold:.2f}): Proceeding with crop", file=sys.stderr)
         
-        # Tier 2: Medium confidence (60-90%) - Use content verification if enabled
+        # Rule 2d: Medium confidence (60-85%) - Use content verification if enabled
         elif confidence >= 0.60 and use_content_verify:
             verification_used = True
             if debug:
@@ -307,7 +377,7 @@ def detectDocumentPage_U2Net(src: np.ndarray, model_name: str = 'u2netp', debug:
                 should_skip_crop = True
                 skip_reason = "verification error (being conservative)"
         
-        # Tier 3: Low confidence (<60%) or medium without verification - Skip
+        # Rule 3: Low confidence (<60%) or medium without verification - Skip
         elif confidence < 0.60:
             should_skip_crop = True
             skip_reason = f"confidence too low ({confidence:.2f}, minimum 0.60)"
