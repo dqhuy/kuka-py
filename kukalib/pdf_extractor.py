@@ -238,7 +238,7 @@ if __name__ == "__main__":
         input_dir=input_dir,
         output_dir=output_dir,
         pattern="Vais_*.pdf",
-        dpi_values=[50, 100]
+        dpi_values=[50, 100, 150]
     )
     
     # Create summary
